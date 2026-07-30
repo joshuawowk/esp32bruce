@@ -10,6 +10,7 @@
 #include "menu_items/EthernetMenu.h"
 #include "menu_items/FMMenu.h"
 #include "menu_items/FileMenu.h"
+#include "menu_items/FlockMenu.h"
 #include "menu_items/GpsMenu.h"
 #include "menu_items/IRMenu.h"
 #include "menu_items/LoRaMenu.h"
@@ -38,6 +39,7 @@ public:
 #if !defined(LITE_VERSION)
     LoRaMenu loraMenu;
     EthernetMenu ethernetMenu;
+    FlockMenu flockMenu;
 #endif
 
     MainMenu();
