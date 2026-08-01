@@ -88,7 +88,17 @@ static const uint8_t MISO = SPI_MISO_PIN;
 // TFT Display (ILI9341V via SPI)
 // =============================================
 #define USER_SETUP_LOADED
+// Display controller varies by batch on this OEM 2.8" board: LCDWIKI documents
+// ILI9341V (the default), but some units ship an ST7789-family panel on the very
+// same PCB and SPI pins. Build env "ES3C28P" for ILI9341; build "ES3C28P-st7789"
+// (adds -DES3C28P_ST7789) if the ILI9341 image is blank/garbled. Only the driver
+// select + color order change — pins, inversion, and geometry are identical.
+#ifdef ES3C28P_ST7789
+#define ST7789_DRIVER 1
+#define TFT_RGB_ORDER TFT_BGR // ST7789 defaults to RGB at 240x320; this panel is BGR
+#else
 #define ILI9341_2_DRIVER 1
+#endif
 #define TFT_INVERSION_ON 1 // Fix inverted colors
 #define TFT_WIDTH 240
 #define TFT_HEIGHT 320

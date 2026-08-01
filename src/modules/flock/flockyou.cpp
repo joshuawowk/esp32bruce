@@ -547,6 +547,15 @@ static void fyRun(bool ble, bool wifi) {
     returnToMenu = false;
 
     drawMainBorderWithTitle("Flock-You");
+#if defined(HAS_TOUCH)
+    // Touch-only boards (e.g. the ES3C28P host) have no physical Esc key — the
+    // back gesture is a tap in the invisible top-left cell of the screen. Mark
+    // it so exit is discoverable. Drawn once; fyDraw only repaints y >= 26.
+    tft.setTextSize(1);
+    tft.setTextColor(bruceConfig.secColor, bruceConfig.bgColor);
+    tft.setCursor(6, 8);
+    tft.print("< exit");
+#endif
     if (wifi) fyLinkStart();
     if (ble)  fyBleStart();
 
