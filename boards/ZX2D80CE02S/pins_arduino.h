@@ -44,17 +44,21 @@ static const uint8_t MISO = SPI_MISO_PIN;
 #define SDCARD_MISO -1
 #define SDCARD_MOSI -1
 
-// ---- Optional sub-GHz / 2.4GHz radios (via EXT-IO SPI) ----
+// ---- Sub-GHz / 2.4GHz radios: CC1101 + nRF24 share one SPI bus ----
+// Shared bus SCK/MOSI/MISO = IO12/13/14 (EXT-IO). Each radio has its own CS.
+// The last two control lines land on the RS485 header (GPIO5=DE, GPIO6=DI are
+// ESP-driven, safe to repurpose; GPIO4=RO is transceiver-driven, left alone).
+// Requires the RS485 port to be unused.
 #define USE_CC1101_VIA_SPI
-#define CC1101_GDO0_PIN 10
-#define CC1101_SS_PIN   SPI_SS_PIN
+#define CC1101_SS_PIN   21   // EXT-IO
+#define CC1101_GDO0_PIN 11   // EXT-IO (also the unused reserved link-TX pin)
 #define CC1101_MOSI_PIN SPI_MOSI_PIN
 #define CC1101_SCK_PIN  SPI_SCK_PIN
 #define CC1101_MISO_PIN SPI_MISO_PIN
 
 #define USE_NRF24_VIA_SPI
-#define NRF24_CE_PIN   10
-#define NRF24_SS_PIN   SPI_SS_PIN
+#define NRF24_SS_PIN   5   // RS485 header DE
+#define NRF24_CE_PIN   6   // RS485 header DI
 #define NRF24_MOSI_PIN SPI_MOSI_PIN
 #define NRF24_SCK_PIN  SPI_SCK_PIN
 #define NRF24_MISO_PIN SPI_MISO_PIN
@@ -70,10 +74,12 @@ static const uint8_t SDA = GROVE_SDA;
 static const uint8_t SCL = GROVE_SCL;
 
 // =============================================
-// Serial link (WiFi co-processor link / GPS) on the EXT-IO header
-// co-proc GPIO2 (TX) -> host SERIAL_RX (10); co-proc GPIO42 (RX) <- host SERIAL_TX (11)
+// Serial link to the WiFi co-processor (RX-only) on the EXT-IO header
+// co-proc GPIO2 (TX) -> host SERIAL_RX (IO10). The reverse host->co-proc channel
+// is unimplemented and there is no free pin for it (IO11 is reused for CC1101
+// GDO0), so SERIAL_TX is disabled. GPS lives on the co-processor, not here.
 // =============================================
-#define SERIAL_TX 11
+#define SERIAL_TX -1
 #define SERIAL_RX 10
 #define GPS_SERIAL_TX SERIAL_TX
 #define GPS_SERIAL_RX SERIAL_RX
@@ -140,8 +146,8 @@ static const uint8_t SCL = GROVE_SCL;
 // =============================================
 // Infrared / RF (external, via EXT-IO header)
 // =============================================
-#define TXLED 10 // IR TX default
-#define RXLED 11 // IR RX default
+#define TXLED 12 // IR TX default (shares the SPI bus; IR is rarely used with radios)
+#define RXLED 14 // IR RX default
 #define LED_ON HIGH
 #define LED_OFF LOW
 
