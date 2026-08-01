@@ -72,6 +72,12 @@ static const uint8_t MISO = SPI_MISO_PIN;
 #define SYS_I2C_SCL GROVE_SCL
 static const uint8_t SDA = GROVE_SDA;
 static const uint8_t SCL = GROVE_SCL;
+// A PN532 NFC/RFID reader works on this same I2C bus (@0x24) alongside the FT6x36
+// touch (@0x38) with NO extra pins: interface.cpp does setSysI2CBus(&Wire) +
+// Wire.begin(8,9) and sets rfidModule = PN532_I2C_MODULE, so Bruce's RFID menu
+// drives it out of the box. Do NOT define PN532_IRQ/PN532_RF_REST (embedded-only).
+// Other I2C add-ons (DS3231 RTC, MAX17048 gauge, PCF8574/AW9523 GPIO expander)
+// share this bus the same way.
 
 // =============================================
 // Serial link to the WiFi co-processor (RX-only) on the EXT-IO header
