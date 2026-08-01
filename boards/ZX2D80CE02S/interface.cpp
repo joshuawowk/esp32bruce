@@ -7,7 +7,7 @@
  *   - ST7789 240x320 IPS, 8-bit 8080 parallel (dual GPIO bank; see pins_arduino.h)
  *   - FocalTech FT6x36 / FT5x06 capacitive touch (I2C @ 0x38): SDA=8, SCL=9, INT=48
  *   - Backlight PWM on GPIO47, BOOT button on GPIO0
- *   - microSD present but not wired in the vendor config -> Bruce uses LittleFS
+ *   - No microSD slot on this board (the SD slot is on the ES3C28P) -> LittleFS
  */
 
 #include "core/bus_HAL.h"

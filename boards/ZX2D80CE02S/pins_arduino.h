@@ -21,7 +21,7 @@
 //     straddle BOTH GPIO output banks, so TFT_PARALLEL_8_BIT_DUAL_BANK (a Bruce
 //     TFT_eSPI extension, see Processors/TFT_eSPI_ESP32_S3.h) is required.
 //   - FocalTech FT6x36 / FT5x06 capacitive touch on I2C @ 0x38
-//   - Backlight PWM, RS485, microSD (not wired in the vendor config), EXT-IO hdr
+//   - Backlight PWM, RS485, EXT-IO header (this board has NO microSD slot)
 // Pin map from the official vendor library (smartpanle/PanelLan_esp32_arduino,
 // board sc05_x) and QMSD-ESP32-BSP; verified on hardware.
 // =============================================
@@ -37,8 +37,8 @@ static const uint8_t MOSI = SPI_MOSI_PIN;
 static const uint8_t SCK = SPI_SCK_PIN;
 static const uint8_t MISO = SPI_MISO_PIN;
 
-// microSD: physically present but NOT wired to a usable SPI in the vendor
-// config -> Bruce logs/exports to LittleFS instead.
+// No microSD slot on the WT32S3-28S PRO / ZX2D80CE02S (the slot is on the ES3C28P,
+// a different board). SD pins are -1; Bruce logs/exports to LittleFS.
 #define SDCARD_CS   -1
 #define SDCARD_SCK  -1
 #define SDCARD_MISO -1
