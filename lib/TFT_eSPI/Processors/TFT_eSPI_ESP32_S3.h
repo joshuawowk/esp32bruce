@@ -458,6 +458,55 @@ SPI3_HOST = 2
                            GPIO_CLR_REG = GPIO_OUT_CLR_MASK; GPIO_SET_REG = set_mask((uint8_t) ((C) >> 8)); WR_H; \
                            GPIO_CLR_REG = GPIO_OUT_CLR_MASK; GPIO_SET_REG = set_mask((uint8_t) ((C) >> 0)); WR_H
 
+  // ------------------------------------------------------------------------
+  // Dual-bank 8-bit parallel data bus  (board-gated: TFT_PARALLEL_8_BIT_DUAL_BANK)
+  // Stock TFT_eSPI assumes all 8 data pins share one GPIO output register bank
+  // (GPIO0-31 in GPIO.out, or GPIO32-48 in GPIO.out1). Some ESP32-S3 panels --
+  // e.g. the PanelLan ZX2D80CE02S, whose D0..D7 = 16,40,15,7,41,42,2,1 -- route
+  // the data bus across BOTH banks, which the single-register path above cannot
+  // drive. Below, every byte clears+sets data bits in both banks, so any pin
+  // assignment works. Masks are computed real-time; for constant pins the
+  // compiler folds them, so PARALLEL_INIT (the xset_mask lookup) is not needed.
+  #if defined (TFT_PARALLEL_8_BIT_DUAL_BANK)
+    #undef  tft_Write_8
+    #undef  tft_Write_16
+    #undef  tft_Write_16S
+    #undef  tft_Write_32
+    #undef  tft_Write_32C
+    #undef  tft_Write_32D
+    #undef  PARALLEL_INIT_TFT_DATA_BUS
+
+    // bit-for-one-pin, per bank (0 if the pin is not in that bank / not wired)
+    #define ZXDB_L(pin)        ( (((pin) >= 0) && ((pin) < 32)) ? (1UL << ((pin) & 31)) : 0UL )
+    #define ZXDB_H(pin)        ( ((pin) >= 32) ? (1UL << ((pin) - 32)) : 0UL )
+    #define ZXDB_SL(pin,bit,C) ( ((C) & (bit)) ? ZXDB_L(pin) : 0UL )
+    #define ZXDB_SH(pin,bit,C) ( ((C) & (bit)) ? ZXDB_H(pin) : 0UL )
+
+    // set-masks for a data byte, split by bank
+    #define ZXDB_SET_LO(C) ( ZXDB_SL(TFT_D0,0x01,C)|ZXDB_SL(TFT_D1,0x02,C)|ZXDB_SL(TFT_D2,0x04,C)|ZXDB_SL(TFT_D3,0x08,C) \
+                           | ZXDB_SL(TFT_D4,0x10,C)|ZXDB_SL(TFT_D5,0x20,C)|ZXDB_SL(TFT_D6,0x40,C)|ZXDB_SL(TFT_D7,0x80,C) )
+    #define ZXDB_SET_HI(C) ( ZXDB_SH(TFT_D0,0x01,C)|ZXDB_SH(TFT_D1,0x02,C)|ZXDB_SH(TFT_D2,0x04,C)|ZXDB_SH(TFT_D3,0x08,C) \
+                           | ZXDB_SH(TFT_D4,0x10,C)|ZXDB_SH(TFT_D5,0x20,C)|ZXDB_SH(TFT_D6,0x40,C)|ZXDB_SH(TFT_D7,0x80,C) )
+
+    // all data bits per bank (for clearing), plus the WR strobe in its own bank
+    #define ZXDB_DIR_LO ( ZXDB_L(TFT_D0)|ZXDB_L(TFT_D1)|ZXDB_L(TFT_D2)|ZXDB_L(TFT_D3)|ZXDB_L(TFT_D4)|ZXDB_L(TFT_D5)|ZXDB_L(TFT_D6)|ZXDB_L(TFT_D7) )
+    #define ZXDB_DIR_HI ( ZXDB_H(TFT_D0)|ZXDB_H(TFT_D1)|ZXDB_H(TFT_D2)|ZXDB_H(TFT_D3)|ZXDB_H(TFT_D4)|ZXDB_H(TFT_D5)|ZXDB_H(TFT_D6)|ZXDB_H(TFT_D7) )
+    #define ZXDB_CLR_LO ( ZXDB_DIR_LO | ZXDB_L(TFT_WR) )
+    #define ZXDB_CLR_HI ( ZXDB_DIR_HI | ZXDB_H(TFT_WR) )
+
+    // WR goes low (folded into the clear), data is placed on both banks, WR rises to latch
+    #define ZXDB_W8(C) GPIO.out_w1tc = ZXDB_CLR_LO; GPIO.out1_w1tc.val = ZXDB_CLR_HI; \
+                       GPIO.out_w1ts = ZXDB_SET_LO((uint8_t)(C)); GPIO.out1_w1ts.val = ZXDB_SET_HI((uint8_t)(C)); WR_H
+
+    #define tft_Write_8(C)     ZXDB_W8(C)
+    #define tft_Write_16(C)    ZXDB_W8((uint8_t)((C) >> 8)); ZXDB_W8((uint8_t)((C) >> 0))
+    #define tft_Write_16S(C)   ZXDB_W8((uint8_t)((C) >> 0)); ZXDB_W8((uint8_t)((C) >> 8))
+    #define tft_Write_32(C)    ZXDB_W8((uint8_t)((C) >> 24)); ZXDB_W8((uint8_t)((C) >> 16)); ZXDB_W8((uint8_t)((C) >> 8)); ZXDB_W8((uint8_t)((C) >> 0))
+    #define tft_Write_32C(C,D) ZXDB_W8((uint8_t)((C) >> 8)); ZXDB_W8((uint8_t)((C) >> 0)); ZXDB_W8((uint8_t)((D) >> 8)); ZXDB_W8((uint8_t)((D) >> 0))
+    #define tft_Write_32D(C)   ZXDB_W8((uint8_t)((C) >> 8)); ZXDB_W8((uint8_t)((C) >> 0)); ZXDB_W8((uint8_t)((C) >> 8)); ZXDB_W8((uint8_t)((C) >> 0))
+    #define PARALLEL_INIT_TFT_DATA_BUS
+  #endif // TFT_PARALLEL_8_BIT_DUAL_BANK
+
    // Read pin
   #ifdef TFT_RD
     #if (TFT_RD >= 32)
