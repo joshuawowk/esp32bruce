@@ -29,11 +29,18 @@ JPEG/GIF/PNG, QR, icons) renders **real pixels into RAM**, then we ship the
 bitmap. The slave never parses a Bruce primitive; it just blits. No vector
 protocol, so no font/sprite/image translation gaps.
 
+**Orientation:** pinned **landscape 320×240**. The PSRAM canvas is a 320×240
+sprite, so Bruce (which reads `tftWidth`/`tftHeight` from `tft.width()`/`height()`)
+lays out landscape. The slave's ST7789 is 240×320 native and scans in landscape
+(`setRotation` 1/3) to match. Both landscape orientations work — the master's
+"Landscape (180)" flip is honored by the slave and touch — while the portrait
+orientations are locked out (`LANDSCAPE_LOCK`), since the fixed-aspect canvas
+can't relayout to portrait without reallocating it.
+
 **Known v1 limitation:** `sprite.pushSprite()` composites onto TFT_eSPI's
 (headless) parent panel, not the canvas, so it renders nowhere. The only core
 user is the `tururururu.cpp` shark easter-egg; the entire real UI draws directly
-to `tft` and is unaffected. (Landscape rotation is likewise deferred — v1 is
-pinned portrait 240×320 so the canvas dims equal the slave's native panel.)
+to `tft` and is unaffected.
 
 ## Files
 

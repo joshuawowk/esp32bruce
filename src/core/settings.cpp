@@ -65,7 +65,10 @@ int gsetRotation(bool set) {
     options = {
         {"Default",         [&]() { result = ROTATION; }                        },
         {"Landscape (180)", [&]() { result = ROTATION + mask; }                 },
-#if TFT_WIDTH >= 170 && TFT_HEIGHT >= 240
+// LANDSCAPE_LOCK: boards whose framebuffer has a fixed landscape aspect (e.g. the
+// split-display master's 320x240 PSRAM canvas) can't relayout to portrait, so
+// omit the +/-90 options that would produce an overflowing 240x300 layout.
+#if TFT_WIDTH >= 170 && TFT_HEIGHT >= 240 && !defined(LANDSCAPE_LOCK)
         {"Portrait (+90)",  [&]() { result = ROTATION > 0 ? ROTATION - 1 : 3; } },
         {"Portrait (-90)",  [&]() { result = ROTATION == 3 ? 0 : ROTATION + 1; }},
 

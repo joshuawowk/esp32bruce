@@ -93,9 +93,17 @@ static const uint8_t SCL = GROVE_SCL;
 // =============================================================================
 #define USE_REMOTE_CANVAS // selects lib/HAL/display/remote_canvas.h
 #define HAS_SCREEN
-#define TFT_WIDTH 240
-#define TFT_HEIGHT 320
-#define ROTATION 0 // v1 pinned portrait (canvas dims == slave native panel)
+// Pinned LANDSCAPE. The PSRAM canvas IS a landscape 320x240 sprite: Bruce reads
+// tftWidth/tftHeight from tft.width()/height() (the sprite dims), so these macros
+// alone orient the UI. The slave's ST7789 is 240x320 native and rotates to
+// landscape to match (see remote_display/slave_zx2d80ce02s). LANDSCAPE_LOCK hides
+// the portrait entries in the Orientation menu, which would give Bruce a 240x300
+// layout that overflows the 320x240 canvas; the two landscape orientations
+// (0 / 180) stay selectable and the slave honors the 180 flip.
+#define TFT_WIDTH 320
+#define TFT_HEIGHT 240
+#define ROTATION 0 // landscape (even rotation); slave maps 0->normal, 2->180
+#define LANDSCAPE_LOCK // canvas aspect is fixed landscape: forbid portrait rotations
 #define MINBRIGHT (uint8_t)1
 #define SMOOTH_FONT 1
 

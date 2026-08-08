@@ -22,6 +22,14 @@
 
 #include "bruce_remote_link.h" // shared with the master (see -I.. in platformio.ini)
 
+// The ST7789 is native PORTRAIT; we scan it in landscape (setRotation 1/3) so the
+// master's landscape 320x240 stream (BRL_PANEL_W x BRL_PANEL_H) maps 1:1. Native
+// size is a slave-only detail, kept out of the wire protocol.
+#define SLAVE_NATIVE_W 240
+#define SLAVE_NATIVE_H 320
+#define SLAVE_ROT_NORMAL 1 // landscape; flip to 3 on bring-up if the image is upside down
+#define SLAVE_ROT_FLIP 3   // landscape rotated 180 (Bruce "Landscape (180)")
+
 /* ================= Panel (parallel ST7789, dual-bank 8080) ================= */
 class LGFX : public lgfx::LGFX_Device {
     lgfx::Panel_ST7789 _panel;
@@ -52,8 +60,8 @@ public:
             cfg.pin_cs = -1; // tied on PCB
             cfg.pin_rst = 3; // shared board/touch reset
             cfg.pin_busy = -1;
-            cfg.panel_width = BRL_PANEL_W;
-            cfg.panel_height = BRL_PANEL_H;
+            cfg.panel_width = SLAVE_NATIVE_W;  // native portrait; rotated to landscape at runtime
+            cfg.panel_height = SLAVE_NATIVE_H;
             cfg.offset_x = 0;
             cfg.offset_y = 0;
             cfg.readable = false;
@@ -106,6 +114,25 @@ static bool ft_read_touch(int16_t &x, int16_t &y) {
     return true;
 }
 
+// The FT6336 reports in the panel's NATIVE portrait frame (rx in [0,SLAVE_NATIVE_W),
+// ry in [0,SLAVE_NATIVE_H)). Rotate it into the master's landscape 320x240 canvas
+// coordinates so touch lines up with what's drawn. Mirrors the standard ST7789
+// rotation-1/3 transform. NOTE: exact axis flips depend on how the FT6336 is
+// mounted -- if touch is mirrored on bring-up, negate the affected axis here.
+static void map_touch(int16_t rx, int16_t ry, uint8_t rot, uint16_t &lx, uint16_t &ly) {
+    if (rx < 0) rx = 0;
+    if (ry < 0) ry = 0;
+    if (rx >= SLAVE_NATIVE_W) rx = SLAVE_NATIVE_W - 1;
+    if (ry >= SLAVE_NATIVE_H) ry = SLAVE_NATIVE_H - 1;
+    if (rot == SLAVE_ROT_FLIP) { // landscape 180
+        lx = (uint16_t)((SLAVE_NATIVE_H - 1) - ry);
+        ly = (uint16_t)rx;
+    } else { // SLAVE_ROT_NORMAL, landscape
+        lx = (uint16_t)ry;
+        ly = (uint16_t)((SLAVE_NATIVE_W - 1) - rx);
+    }
+}
+
 /* ============================== SPI slave ================================= */
 // EXT-IO header pins (the only free general IO on the board).
 #define PIN_SPI_CS 10
@@ -128,6 +155,11 @@ static WORD_ALIGNED_ATTR uint8_t rx_payload[BRL_MAX_PAYLOAD];
 // task (core 0) and the SPI loop.
 static brl_status_t g_status;
 static portMUX_TYPE g_status_mux = portMUX_INITIALIZER_UNLOCKED;
+
+// Current landscape scan rotation (SLAVE_ROT_NORMAL / SLAVE_ROT_FLIP). Written by
+// the SPI loop on BRL_OP_ROTATION, read by the touch task; a single aligned byte
+// so reads/writes are atomic on Xtensa -- no lock needed.
+static uint8_t g_rotation = SLAVE_ROT_NORMAL;
 
 static void spi_slave_init() {
     spi_bus_config_t buscfg = {};
@@ -169,12 +201,15 @@ static void touch_task(void *) {
         s = g_status;
         portEXIT_CRITICAL(&g_status_mux);
 
+        uint8_t rot = g_rotation;
+        uint16_t lx = 0, ly = 0; // locals: brl_status_t is packed, can't ref its fields
         if (down) {
             uint8_t state = was_down ? BRL_TOUCH_MOVE : BRL_TOUCH_DOWN;
             if (!was_down || x != last_x || y != last_y) {
                 s.touch_state = state;
-                s.touch_x = x;
-                s.touch_y = y;
+                map_touch(x, y, rot, lx, ly); // -> landscape canvas coords
+                s.touch_x = lx;
+                s.touch_y = ly;
                 s.seq++;
                 s.flags |= 0x01;
                 changed = true;
@@ -184,8 +219,9 @@ static void touch_task(void *) {
             last_y = y;
         } else if (was_down) {
             s.touch_state = BRL_TOUCH_UP;
-            s.touch_x = last_x;
-            s.touch_y = last_y;
+            map_touch(last_x, last_y, rot, lx, ly);
+            s.touch_x = lx;
+            s.touch_y = ly;
             s.seq++;
             s.flags &= ~0x01;
             changed = true;
@@ -225,9 +261,15 @@ static void apply_header(const brl_header_t *h) {
         lcd.sleep(); // arg0==1; wake handled via BRL_OP_BACKLIGHT/next tile
         if (h->arg0 == 0) lcd.wakeup();
         break;
-    case BRL_OP_ROTATION:
-        lcd.setRotation(h->arg0 & 0x03);
+    case BRL_OP_ROTATION: {
+        // The canvas is always landscape; the master only ever means "normal" or
+        // "180". bit1 of its rotation selects the flip (0/1 -> normal, 2/3 -> 180);
+        // the portrait bit is ignored (portrait is locked out on the master).
+        uint8_t sr = (h->arg0 & 0x02) ? SLAVE_ROT_FLIP : SLAVE_ROT_NORMAL;
+        lcd.setRotation(sr);
+        g_rotation = sr;
         break;
+    }
     case BRL_OP_POLLTOUCH:
         // Master collected the status we just sent full-duplex; drop IRQ.
         digitalWrite(PIN_TOUCH_IRQ, HIGH);
@@ -247,7 +289,8 @@ void setup() {
     digitalWrite(PIN_TOUCH_IRQ, HIGH); // idle high (no pending touch)
 
     lcd.init();
-    lcd.setRotation(0);
+    lcd.setRotation(SLAVE_ROT_NORMAL); // landscape 320x240 to match the master's canvas
+    g_rotation = SLAVE_ROT_NORMAL;
     lcd.setSwapBytes(true); // master (TFT_eSPI sprite) ships byte-swapped RGB565
     lcd.fillScreen(TFT_BLACK);
     lcd.setBrightness(255);

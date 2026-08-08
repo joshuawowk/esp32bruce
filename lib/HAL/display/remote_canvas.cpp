@@ -163,6 +163,12 @@ static void remote_canvas_begin(uint16_t *fb, int w, int h) {
     hs.opcode = BRL_OP_SYNC;
     brl_status_t st;
     send_control(&hs, &st);
+    // The slave reports the canvas geometry it expects; mismatch means a
+    // wrong/stale slave firmware is flashed (e.g. a portrait proto-v1 build).
+    if (brl_status_valid(&st) && (st.panel_w != BRL_PANEL_W || st.panel_h != BRL_PANEL_H)) {
+        log_e("remote_canvas: slave reports %dx%d, expected %dx%d (proto v%d) -- flash mismatch?",
+              st.panel_w, st.panel_h, BRL_PANEL_W, BRL_PANEL_H, st.proto);
+    }
     remote_canvas_send_backlight(255);
 
     xTaskCreatePinnedToCore(flushTask, "canvasFlush", 4096, nullptr, 1, nullptr, 0);
@@ -203,7 +209,12 @@ void tft_display::invertDisplay(bool) { /* fixed on the slave panel in v1 */ }
 void tft_display::setRotation(uint8_t r) {
     _rot = r & 0x03;
     remote_canvas_send_rotation(_rot);
-    // v1 is pinned portrait: the canvas keeps its native _cw x _ch dimensions.
+    // Pinned landscape: the canvas is a fixed 320x240 sprite and its _cw x _ch
+    // dimensions never change (we deliberately do NOT call TFT_eSprite::setRotation,
+    // so tft.width()/height() stay 320x240 and Bruce lays out landscape). The value
+    // only tells the slave which landscape orientation to scan: bit1 picks the 180
+    // flip (0/1 -> normal, 2/3 -> flipped); portrait rotations are locked out on the
+    // master (LANDSCAPE_LOCK), so they never reach here.
 }
 
 uint8_t tft_display::getRotation() { return _rot; }
