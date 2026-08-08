@@ -54,4 +54,6 @@
 #include "../ESP32-C5/pins_arduino.h"
 #elif NM_CYD_ESP32C5
 #include "../nm-cyd-c5/pins_arduino.h"
+#elif defined(ARDUINO_M5STACK_TAB5)
+#include "../m5stack-tab5/pins_arduino.h"
 #endif

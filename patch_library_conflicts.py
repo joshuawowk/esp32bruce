@@ -220,3 +220,62 @@ for file_pattern, search, replace in conflicts:
                 print(f"Patched: {file_path}")
         except Exception as e:
             print(f"Failed to patch {file_path}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# ESP32-P4 (M5Stack Tab5) NimBLE-Arduino: run in IDF / esp-nimble-cpp mode.
+# The P4 has no local BT controller; BLE runs on the ESP32-C6 via esp-hosted
+# (IDF NimBLE in libbt.a). NimBLE-Arduino defaults to its bundled local-controller
+# stack, which fails on P4. These edits live under .pio (wiped on every lib
+# (re)install), so re-apply them here every build. Scoped to the P4 env's libdeps
+# so no other board is affected. See PORTING_PLAN.md section 20.
+# ---------------------------------------------------------------------------
+_p4_nimble = ".pio/libdeps/m5stack-tab5/NimBLE-Arduino"
+if os.path.isdir(_p4_nimble):
+    # 1) nimconfig.h: do NOT define USING_NIMBLE_ARDUINO_HEADERS on P4 -> use IDF headers/stack
+    _nc = os.path.join(_p4_nimble, "src", "nimconfig.h")
+    try:
+        _s = open(_nc).read()
+        _old = "#define USING_NIMBLE_ARDUINO_HEADERS (1)\n"
+        _new = ("#ifndef CONFIG_IDF_TARGET_ESP32P4\n"
+                "#define USING_NIMBLE_ARDUINO_HEADERS (1)\n"
+                "#endif\n")
+        if "CONFIG_IDF_TARGET_ESP32P4" not in _s and _old in _s:
+            open(_nc, "w").write(_s.replace(_old, _new, 1))
+            print("Patched (P4): " + _nc)
+        else:
+            print("Already patched (P4): " + _nc)
+    except Exception as e:
+        print("P4 nimconfig patch failed: %s" % e)
+
+    # 2) library.json: exclude the 163 bundled nimble/ C sources so only the C++
+    #    wrapper compiles and links against the IDF's hosted NimBLE (libbt.a).
+    #    (re)written every build because a fresh lib extract has no library.json.
+    _lj = os.path.join(_p4_nimble, "library.json")
+    try:
+        open(_lj, "w").write('{\n  "name": "NimBLE-Arduino",\n'
+                             '  "build": { "srcFilter": ["+<*>", "-<nimble/>"] }\n}\n')
+        print("Wrote (P4): " + _lj)
+    except Exception as e:
+        print("P4 library.json write failed: %s" % e)
+
+    # 3) NimBLEDevice.cpp: bound the controller-sync wait so a non-responding hosted
+    #    C6 degrades to 'return false' instead of hanging the caller forever.
+    _dev = os.path.join(_p4_nimble, "src", "NimBLEDevice.cpp")
+    try:
+        _s = open(_dev).read()
+        _old = "    while (!m_synced) {\n        ble_npl_time_delay(1);\n    }\n"
+        _new = ("    for (int _sync_ms = 0; !m_synced && _sync_ms < 3000; ++_sync_ms) {\n"
+                "        ble_npl_time_delay(1);\n"
+                "    }\n"
+                "    if (!m_synced) {\n"
+                "        NIMBLE_LOGE(LOG_TAG, \"BLE controller sync timeout (hosted C6?)\");\n"
+                "        return false;\n"
+                "    }\n")
+        if "_sync_ms" not in _s and _old in _s:
+            open(_dev, "w").write(_s.replace(_old, _new, 1))
+            print("Patched (P4): " + _dev)
+        else:
+            print("Already patched (P4): " + _dev)
+    except Exception as e:
+        print("P4 NimBLEDevice patch failed: %s" % e)

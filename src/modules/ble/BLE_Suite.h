@@ -8,6 +8,7 @@
 #include "HFP_Exploit.h"
 #include "fastpair_crypto.h"
 #include <NimBLEDevice.h>
+#include "modules/ble/ble_pwr_compat.h"
 #include <WString.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
