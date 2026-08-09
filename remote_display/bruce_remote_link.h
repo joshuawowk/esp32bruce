@@ -31,17 +31,24 @@
 /* ------------------------------------------------------------------ */
 /* Versioning + panel geometry                                         */
 /* ------------------------------------------------------------------ */
-#define BRL_PROTO_VERSION 1
+#define BRL_PROTO_VERSION 2 /* v2: streamed canvas is landscape 320x240 */
 
-#define BRL_PANEL_W 240 /* ST7789 native portrait width  */
-#define BRL_PANEL_H 320 /* ST7789 native portrait height */
+/* Streamed canvas geometry -- the coordinate system BOTH ends agree on. The
+ * master renders full Bruce into a landscape 320x240 PSRAM sprite and ships it;
+ * touch is reported back in these same coordinates. The slave's physical ST7789
+ * is 240x320 *native portrait* -- it rotates to landscape (setRotation 1/3) so
+ * this 320x240 stream maps 1:1 onto its logical framebuffer. That native size is
+ * a slave-only detail (SLAVE_NATIVE_W/H in slave_zx2d80ce02s/src/main.cpp), not
+ * part of the wire protocol. */
+#define BRL_PANEL_W 320 /* streamed canvas width  (landscape) */
+#define BRL_PANEL_H 240 /* streamed canvas height (landscape) */
 
 /* Dirty-rectangle streaming: the framebuffer is diffed in horizontal
  * bands of BRL_BAND_ROWS rows; only changed bands are transmitted. */
 #define BRL_BAND_ROWS 16
-#define BRL_NUM_BANDS (BRL_PANEL_H / BRL_BAND_ROWS)          /* 20 bands   */
-#define BRL_BAND_BYTES (BRL_PANEL_W * BRL_BAND_ROWS * 2)     /* 7680 bytes */
-#define BRL_FB_BYTES (BRL_PANEL_W * BRL_PANEL_H * 2)         /* 153600     */
+#define BRL_NUM_BANDS (BRL_PANEL_H / BRL_BAND_ROWS)          /* 15 bands    */
+#define BRL_BAND_BYTES (BRL_PANEL_W * BRL_BAND_ROWS * 2)     /* 10240 bytes */
+#define BRL_FB_BYTES (BRL_PANEL_W * BRL_PANEL_H * 2)         /* 153600      */
 
 /* Largest pixel payload the slave must be able to receive in one
  * transaction. A full band is the natural unit; keep the slave DMA RX
