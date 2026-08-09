@@ -1,0 +1,509 @@
+<title>Divorced Bruce — split-display assembly guide</title>
+<style>
+  :root{
+    /* dark-first: bare :root carries the dark palette (see @media / [data-theme] below) */
+    --bg:#0b0e14; --panel:#141926; --panel-2:#0f141f; --line:#252c3b;
+    --ink:#e8eaf0; --muted:#8b93a7;
+    --accent:#b794f6; --accent-soft:rgba(183,148,246,.13);
+    --master:#f0b429; --master-soft:rgba(240,180,41,.13);
+    --slave:#4dd0e1; --slave-soft:rgba(77,208,225,.13);
+    --link:#3fb950; --link-soft:rgba(63,185,80,.13);
+    --bad:#e5534b; --bad-soft:rgba(229,83,75,.14);
+    --grid:rgba(139,147,167,.07);
+    --shadow:0 1px 0 rgba(0,0,0,.35), 0 14px 34px -16px rgba(0,0,0,.62);
+    --mono:ui-monospace,"JetBrains Mono","Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+    --measure:66ch; --maxw:1040px;
+  }
+  @media (prefers-color-scheme:light){
+    :root:not([data-theme="dark"]){
+      --bg:#eef1f6; --panel:#ffffff; --panel-2:#f3f5f9; --line:#d9dee9;
+      --ink:#171b26; --muted:#5a6273;
+      --accent:#7c3aed; --accent-soft:rgba(124,58,237,.10);
+      --master:#a86a00; --master-soft:rgba(168,106,0,.12);
+      --slave:#0e7c8b; --slave-soft:rgba(14,124,139,.10);
+      --link:#178a48; --link-soft:rgba(23,138,72,.10);
+      --bad:#cf3a2c; --bad-soft:rgba(207,58,44,.10);
+      --grid:rgba(23,27,38,.05);
+      --shadow:0 1px 0 rgba(0,0,0,.03), 0 16px 36px -20px rgba(20,30,60,.28);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#eef1f6; --panel:#ffffff; --panel-2:#f3f5f9; --line:#d9dee9;
+    --ink:#171b26; --muted:#5a6273;
+    --accent:#7c3aed; --accent-soft:rgba(124,58,237,.10);
+    --master:#a86a00; --master-soft:rgba(168,106,0,.12);
+    --slave:#0e7c8b; --slave-soft:rgba(14,124,139,.10);
+    --link:#178a48; --link-soft:rgba(23,138,72,.10);
+    --bad:#cf3a2c; --bad-soft:rgba(207,58,44,.10);
+    --grid:rgba(23,27,38,.05);
+    --shadow:0 1px 0 rgba(0,0,0,.03), 0 16px 36px -20px rgba(20,30,60,.28);
+  }
+  :root[data-theme="dark"]{
+    --bg:#0b0e14; --panel:#141926; --panel-2:#0f141f; --line:#252c3b;
+    --ink:#e8eaf0; --muted:#8b93a7;
+    --accent:#b794f6; --accent-soft:rgba(183,148,246,.13);
+    --master:#f0b429; --master-soft:rgba(240,180,41,.13);
+    --slave:#4dd0e1; --slave-soft:rgba(77,208,225,.13);
+    --link:#3fb950; --link-soft:rgba(63,185,80,.13);
+    --bad:#e5534b; --bad-soft:rgba(229,83,75,.14);
+    --grid:rgba(139,147,167,.07);
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+       font-size:16px;line-height:1.62;letter-spacing:.1px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px 96px}
+  a{color:var(--accent);text-underline-offset:2px}
+  @media (prefers-reduced-motion:no-preference){a{transition:color .15s ease}.gcard{transition:border-color .15s ease}}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+
+  /* ---- header ---- */
+  header.top{border-bottom:1px solid var(--line);
+    background:linear-gradient(var(--grid) 1px,transparent 1px) 0 0/26px 26px,
+      linear-gradient(90deg,var(--grid) 1px,transparent 1px) 0 0/26px 26px,
+      linear-gradient(180deg,var(--panel),var(--bg));margin-bottom:40px}
+  .top .wrap{padding-top:38px;padding-bottom:30px}
+  .eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 14px;display:flex;align-items:center;gap:10px}
+  .eyebrow::before{content:"";width:26px;height:2px;background:var(--accent);display:inline-block}
+  h1{font-family:var(--mono);font-size:clamp(1.85rem,1.15rem + 2.7vw,2.7rem);line-height:1.04;
+     margin:0 0 16px;letter-spacing:-.02em;text-wrap:balance;font-weight:700}
+  h1 .thin{color:var(--muted);font-weight:400;font-size:.5em;letter-spacing:0;display:block;margin-top:10px}
+  .lede{color:var(--muted);font-size:1.07rem;margin:0;max-width:68ch}
+  .lede b{color:var(--ink);font-weight:600}
+  .facts{list-style:none;display:flex;flex-wrap:wrap;gap:10px 22px;padding:24px 0 0;margin:0;
+    font-family:var(--mono);font-size:.79rem;color:var(--muted)}
+  .facts li{display:flex;align-items:center;gap:8px}
+  .facts .d{width:8px;height:8px;border-radius:50%;flex:none}
+  .facts b{color:var(--ink);font-weight:600}
+
+  /* ---- sections ---- */
+  section{margin-top:52px}
+  h2{font-family:var(--mono);font-size:1.35rem;letter-spacing:-.01em;margin:0 0 6px;font-weight:700;
+     display:flex;align-items:baseline;gap:12px;text-wrap:balance}
+  h2 .num{font-family:var(--mono);font-size:.82rem;color:var(--accent);
+    border:1px solid var(--line);border-radius:7px;padding:2px 8px;font-weight:600;background:var(--panel-2)}
+  .sub{color:var(--muted);margin:2px 0 22px;max-width:var(--measure);font-size:1.01rem}
+  h3{font-size:1.05rem;margin:28px 0 8px;letter-spacing:-.01em}
+  p{margin:0 0 14px;max-width:var(--measure)}
+
+  /* ---- figures / diagrams ---- */
+  figure.fig{margin:22px 0 8px;
+    background:linear-gradient(var(--grid) 1px,transparent 1px) 0 0/22px 22px,
+      linear-gradient(90deg,var(--grid) 1px,transparent 1px) 0 0/22px 22px,var(--panel);
+    border:1px solid var(--line);border-radius:16px;padding:20px 18px;box-shadow:var(--shadow);overflow-x:auto}
+  figure.fig svg{display:block;width:100%;height:auto;min-width:600px}
+  figcaption{font-family:var(--mono);font-size:.76rem;color:var(--muted);margin:14px 4px 0;
+    line-height:1.6;max-width:none}
+  figcaption b{color:var(--ink)}
+
+  .d-box{fill:var(--panel-2);stroke:var(--line);stroke-width:1.5}
+  .d-master{fill:var(--master-soft);stroke:var(--master);stroke-width:1.8}
+  .d-slave{fill:var(--slave-soft);stroke:var(--slave);stroke-width:1.8}
+  .d-link{fill:var(--link-soft);stroke:var(--link);stroke-width:1.8}
+  .d-title{fill:var(--ink);font:700 15px var(--mono)}
+  .d-sub{fill:var(--muted);font:500 12px var(--sans)}
+  .d-lab{fill:var(--muted);font:600 11.5px var(--mono)}
+  .d-mono{fill:var(--ink);font:600 12.5px var(--mono)}
+  .d-mx{fill:var(--master);font:700 12.5px var(--mono)}
+  .d-sx{fill:var(--slave);font:700 12.5px var(--mono)}
+  .d-lx{fill:var(--link);font:700 12.5px var(--mono)}
+  .flow{stroke:var(--link);stroke-width:2.4;fill:none}
+  .flow-acc{stroke:var(--accent);stroke-width:2.2;fill:none}
+  .flow-mut{stroke:var(--muted);stroke-width:1.8;fill:none}
+
+  /* ---- tables ---- */
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);margin:8px 0}
+  table{border-collapse:collapse;width:100%;min-width:600px;font-size:.92rem;background:var(--panel)}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  thead th{font-family:var(--mono);font-size:.7rem;text-transform:uppercase;letter-spacing:.12em;
+    color:var(--muted);background:var(--panel-2);font-weight:600}
+  tbody tr:last-child td{border-bottom:0}
+  td.mono,.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  th.col-m,td.col-m{color:var(--master)} th.col-s,td.col-s{color:var(--slave)}
+  td b{font-weight:600}
+
+  .chip{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:.76rem;
+    padding:3px 9px;border-radius:999px;border:1px solid var(--line);background:var(--panel-2);white-space:nowrap}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none}
+
+  /* ---- notes ---- */
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 10px 10px 0;
+    padding:12px 16px;margin:18px 0;max-width:var(--measure)}
+  .note.warn{border-left-color:var(--master);background:var(--master-soft)}
+  .note.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+  .note.ok{border-left-color:var(--link);background:var(--link-soft)}
+  .note p{margin:0;max-width:none}
+  .note .k{font-family:var(--mono);font-weight:700;font-size:.72rem;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--muted);display:block;margin-bottom:5px}
+
+  /* ---- code ---- */
+  code{font-family:var(--mono);font-size:.88em;background:var(--panel-2);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+  pre{margin:0 0 6px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow-x:auto;box-shadow:var(--shadow)}
+  pre code{background:none;border:0;padding:0;font-size:.84rem;line-height:1.8;color:var(--ink)}
+  .cmt{color:var(--muted)} .b-m{color:var(--master);font-weight:700} .b-s{color:var(--slave);font-weight:700} .b-l{color:var(--link);font-weight:700}
+
+  /* ---- milestone list ---- */
+  ol.steps{list-style:none;counter-reset:ms;padding:0;margin:8px 0 0;display:grid;gap:12px}
+  ol.steps li{counter-increment:ms;position:relative;border:1px solid var(--line);border-radius:14px;
+    background:var(--panel);box-shadow:var(--shadow);padding:15px 18px 15px 62px}
+  ol.steps li::before{content:counter(ms);position:absolute;left:16px;top:15px;width:30px;height:30px;
+    display:grid;place-items:center;font-family:var(--mono);font-weight:700;font-size:.9rem;
+    color:var(--accent);border:1px solid var(--line);border-radius:9px;background:var(--panel-2)}
+  ol.steps h4{margin:0 0 4px;font-size:1rem;font-family:var(--mono);letter-spacing:-.01em}
+  ol.steps p{margin:0;color:var(--muted);font-size:.92rem;max-width:none}
+  ol.steps code{font-size:.82em}
+
+  /* ---- footer ---- */
+  footer{margin-top:64px;padding-top:22px;border-top:1px solid var(--line);color:var(--muted);
+    font-family:var(--mono);font-size:.78rem;line-height:1.9}
+  footer .sig{display:block;margin-top:6px;opacity:.85}
+  @media (max-width:620px){.facts{gap:8px 16px}h2{gap:9px}ol.steps li{padding-left:56px}}
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <p class="eyebrow">Divorced Bruce · split-display build</p>
+    <h1>The two-board assembly guide
+      <span class="thin">One box couldn't hold both a parallel screen and a stack of radios. So Bruce split up.</span>
+    </h1>
+    <p class="lede"><b>Irreconcilable GPIO differences.</b> The ZX2D80CE02S drives its display over an 8-bit parallel bus that claims ~13 pins — nothing left for the radios. The fix: give every radio to a <b>master</b> ESP32-S3 with pins to spare, and demote the display board to a dumb pixel blitter. The master keeps the radios and runs <b>full Bruce, headless</b>; the <b>slave</b> keeps the screen. They still talk — over six wires of SPI.</p>
+    <ul class="facts">
+      <li><span class="d" style="background:var(--master)"></span> master: <b>radios + full Bruce</b></li>
+      <li><span class="d" style="background:var(--slave)"></span> slave: <b>ZX2D80CE02S</b> display only</li>
+      <li><span class="d" style="background:var(--link)"></span> <b>6-wire SPI</b> @ 20 MHz</li>
+      <li><span class="d" style="background:var(--accent)"></span> pixel-perfect <b>PSRAM canvas</b></li>
+      <li><span class="d" style="background:var(--link)"></span> portrait <b>240×320</b> (v1)</li>
+    </ul>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- 01 -->
+  <section id="split" style="margin-top:8px">
+    <h2><span class="num">01</span> The split</h2>
+    <p class="sub">Two ESP32-S3 boards, one Bruce. The master owns every radio and every line of Bruce's logic; the slave owns the panel and the touch controller. The only thing between them is a thin SPI link that carries pixels one way and touch the other.</p>
+
+    <figure class="fig">
+      <svg viewBox="0 0 1000 360" role="img" aria-label="The master ESP32-S3 holds the radios and runs full Bruce, rendering the UI into a 150 KB PSRAM canvas and streaming changed pixel bands over a six-wire SPI link to the slave ZX2D80CE02S, which blits them to its parallel ST7789 panel and returns touch. A dashed seam divides the radios-and-logic half from the screen-only half.">
+        <defs>
+          <marker id="a-link" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--link)"/></marker>
+        </defs>
+
+        <!-- regime bars -->
+        <rect class="d-master" x="20" y="22" width="500" height="26" rx="8"/>
+        <text class="d-mx" x="270" y="40" text-anchor="middle">RADIOS · LOGIC · RENDERS THE WHOLE UI</text>
+        <rect class="d-slave" x="560" y="22" width="420" height="26" rx="8"/>
+        <text class="d-sx" x="770" y="40" text-anchor="middle">SCREEN · TOUCH · NOTHING ELSE</text>
+
+        <!-- seam -->
+        <line x1="540" y1="60" x2="540" y2="316" stroke="var(--line)" stroke-dasharray="4 5"/>
+        <text class="d-lab" x="540" y="336" text-anchor="middle">the seam — 6 wires of SPI (it carries data, not brains)</text>
+
+        <!-- radios -->
+        <rect class="d-box" x="20" y="98" width="150" height="150" rx="12"/>
+        <text class="d-title" x="95" y="126" text-anchor="middle" font-size="13.5">Radios</text>
+        <line x1="38" y1="138" x2="152" y2="138" stroke="var(--line)"/>
+        <text class="d-lab" x="95" y="162" text-anchor="middle">CC1101</text>
+        <text class="d-lab" x="95" y="182" text-anchor="middle">nRF24</text>
+        <text class="d-lab" x="95" y="202" text-anchor="middle">PN532</text>
+        <text class="d-lab" x="95" y="222" text-anchor="middle">IR · GPS</text>
+        <line class="flow-mut" x1="170" y1="173" x2="212" y2="173"/>
+
+        <!-- master -->
+        <rect class="d-master" x="212" y="86" width="252" height="184" rx="13" fill="var(--panel-2)"/>
+        <text class="d-title" x="338" y="116" text-anchor="middle">MASTER</text>
+        <text class="d-sub" x="338" y="136" text-anchor="middle">ESP32-S3 · N16R8</text>
+        <line x1="230" y1="150" x2="446" y2="150" stroke="var(--line)"/>
+        <text class="d-mono" x="230" y="176">full Bruce, headless</text>
+        <text class="d-mono" x="230" y="200">PSRAM canvas — 150 KB</text>
+        <text class="d-mono" x="230" y="224">flush: CRC per 16-row band</text>
+        <text class="d-lab" x="230" y="248">radios on a separate SPI bus</text>
+
+        <!-- slave -->
+        <rect class="d-slave" x="610" y="86" width="252" height="184" rx="13" fill="var(--panel-2)"/>
+        <text class="d-title" x="736" y="116" text-anchor="middle">SLAVE</text>
+        <text class="d-sub" x="736" y="136" text-anchor="middle">ZX2D80CE02S</text>
+        <line x1="628" y1="150" x2="844" y2="150" stroke="var(--line)"/>
+        <text class="d-mono" x="628" y="176">SPI-peripheral DMA</text>
+        <text class="d-mono" x="628" y="200">blit → parallel ST7789</text>
+        <text class="d-mono" x="628" y="224">240×320 · FT6336 touch</text>
+        <text class="d-lab" x="628" y="248">knows no Bruce primitives</text>
+
+        <!-- screen glyph -->
+        <rect class="d-slave" x="892" y="118" width="86" height="120" rx="8"/>
+        <line x1="904" y1="150" x2="966" y2="150" stroke="var(--slave)" stroke-width="1"/>
+        <line x1="904" y1="168" x2="952" y2="168" stroke="var(--slave)" stroke-width="1" opacity=".6"/>
+        <line x1="904" y1="186" x2="960" y2="186" stroke="var(--slave)" stroke-width="1" opacity=".6"/>
+        <line x1="904" y1="204" x2="944" y2="204" stroke="var(--slave)" stroke-width="1" opacity=".6"/>
+
+        <!-- cross-seam arrows -->
+        <line class="flow" x1="464" y1="184" x2="608" y2="184" marker-end="url(#a-link)"/>
+        <text class="d-lx" x="536" y="174" text-anchor="middle">RGB565 tiles →</text>
+        <line class="flow" x1="608" y1="228" x2="466" y2="228" marker-end="url(#a-link)" stroke-dasharray="6 4"/>
+        <text class="d-lx" x="536" y="246" text-anchor="middle">← touch + IRQ</text>
+      </svg>
+      <figcaption><b>Left of the seam</b>, the master renders every one of Bruce's ~2,500 draw calls into a RAM framebuffer. <b>Right of the seam</b>, the slave just paints the bytes it's handed and reports where you tapped. Neither board has to understand the other's job — which is exactly why six wires is enough.</figcaption>
+    </figure>
+  </section>
+
+  <!-- 02 -->
+  <section id="bom">
+    <h2><span class="num">02</span> What you'll need</h2>
+    <p class="sub">Two ESP32-S3 boards and the radios you wanted all along. Everything but the display board hangs off the master.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Part</th><th>Role</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="col-m"><b>Master board</b></td><td>Runs full Bruce, headless</td><td>Any ESP32-S3; <b>N16R8 recommended</b> (16 MB flash / 8 MB PSRAM). PSRAM is mandatory — the canvas lives there.</td></tr>
+          <tr><td class="col-s"><b>Slave board</b></td><td>The display + touch</td><td>PanelLan <b>ZX2D80CE02S</b> (aka SC05_X / "WT32S3-28S PRO"). WT32-S3-WROVER N8R2, parallel ST7789 240×320, FT6336 cap-touch. Already Bruce-ported.</td></tr>
+          <tr><td class="mono">CC1101</td><td>Sub-GHz RF</td><td>On the master's radio SPI bus.</td></tr>
+          <tr><td class="mono">nRF24L01+</td><td>2.4 GHz</td><td>Shares the radio SPI bus; its own CS + CE.</td></tr>
+          <tr><td class="mono">PN532</td><td>NFC / RFID</td><td>On the master's I2C bus (@0x24). Costs no extra GPIO.</td></tr>
+          <tr><td class="mono">7× jumpers</td><td>The link harness</td><td>SCLK, MOSI, MISO, CS, IRQ, GND, 3V3. Keep them short.</td></tr>
+          <tr><td class="mono">GPS · IR · µSD</td><td>Optional extras</td><td>All on the master's remaining GPIO.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note ok">
+      <p><span class="k">No PSRAM, no picture</span>The canvas is a full-screen <code>TFT_eSprite</code> — 240×320×2 = <b>150 KB</b> — allocated with <code>createSprite()</code> in PSRAM. An N8R2 master (2 MB) is enough; N16R8 just leaves the most headroom for Bruce itself (the firmware is ~3.75 MB and uses ~48% of internal RAM before the canvas).</p>
+    </div>
+  </section>
+
+  <!-- 03 -->
+  <section id="link">
+    <h2><span class="num">03</span> Wire the link — the custody arrangement</h2>
+    <p class="sub">Six signals plus power. The defaults use the <b>same GPIO number on both ends</b>, so the harness is symmetric: 12→12, 11→11, and so on. On the slave these are the EXT-IO header pins (10–14) — the only general IO the parallel panel leaves free.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Signal</th><th class="col-m">Master GPIO</th><th class="col-s">Slave GPIO</th><th>Direction</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">SCLK</td><td class="mono col-m">12</td><td class="mono col-s">12</td><td class="mono">master → slave</td></tr>
+          <tr><td class="mono">MOSI</td><td class="mono col-m">11</td><td class="mono col-s">11</td><td class="mono">master → slave</td></tr>
+          <tr><td class="mono">MISO</td><td class="mono col-m">13</td><td class="mono col-s">13</td><td class="mono">slave → master</td></tr>
+          <tr><td class="mono">CS</td><td class="mono col-m">10</td><td class="mono col-s">10</td><td class="mono">master → slave</td></tr>
+          <tr><td class="mono">TOUCH_IRQ</td><td class="mono col-m">14</td><td class="mono col-s">14</td><td class="mono">slave → master · active-low</td></tr>
+          <tr><td class="mono">GND</td><td class="mono col-m">GND</td><td class="mono col-s">GND</td><td class="mono">common — wire first</td></tr>
+          <tr><td class="mono">3V3</td><td class="mono col-m">3V3</td><td class="mono col-s">3V3</td><td class="mono">shared supply</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="fig">
+      <svg viewBox="0 0 900 400" role="img" aria-label="Wiring harness: the master board on the left and the slave ZX2D80CE02S on the right, each with seven pins. Seven wires join identically numbered pins: SCLK 12, MOSI 11 and CS 10 run master to slave; MISO 13 and TOUCH_IRQ 14 run slave to master; GND and 3V3 are shared.">
+        <defs>
+          <marker id="w-r" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker>
+          <marker id="w-s" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--slave)"/></marker>
+          <marker id="w-l" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--link)"/></marker>
+        </defs>
+
+        <!-- boards -->
+        <rect class="d-master" x="60" y="70" width="190" height="300" rx="14" fill="var(--panel-2)"/>
+        <text class="d-title" x="155" y="102" text-anchor="middle">MASTER</text>
+        <text class="d-sub" x="155" y="120" text-anchor="middle">radios board</text>
+        <rect class="d-slave" x="650" y="70" width="190" height="300" rx="14" fill="var(--panel-2)"/>
+        <text class="d-title" x="745" y="102" text-anchor="middle">SLAVE</text>
+        <text class="d-sub" x="745" y="120" text-anchor="middle">ZX2D80CE02S · EXT-IO</text>
+
+        <!-- row generator: y positions -->
+        <!-- SCLK 12 : M->S accent -->
+        <g>
+          <circle cx="250" cy="160" r="4.5" fill="var(--accent)"/><circle cx="650" cy="160" r="4.5" fill="var(--accent)"/>
+          <text class="d-mono" x="240" y="164" text-anchor="end">12</text>
+          <text class="d-mono" x="660" y="164" text-anchor="start">12</text>
+          <line class="flow-acc" x1="250" y1="160" x2="646" y2="160" marker-end="url(#w-r)"/>
+          <text class="d-lab" x="450" y="151" text-anchor="middle" fill="var(--accent)">SCLK</text>
+        </g>
+        <!-- MOSI 11 : M->S accent -->
+        <g>
+          <circle cx="250" cy="200" r="4.5" fill="var(--accent)"/><circle cx="650" cy="200" r="4.5" fill="var(--accent)"/>
+          <text class="d-mono" x="240" y="204" text-anchor="end">11</text>
+          <text class="d-mono" x="660" y="204" text-anchor="start">11</text>
+          <line class="flow-acc" x1="250" y1="200" x2="646" y2="200" marker-end="url(#w-r)"/>
+          <text class="d-lab" x="450" y="191" text-anchor="middle" fill="var(--accent)">MOSI</text>
+        </g>
+        <!-- MISO 13 : S->M slave -->
+        <g>
+          <circle cx="250" cy="240" r="4.5" fill="var(--slave)"/><circle cx="650" cy="240" r="4.5" fill="var(--slave)"/>
+          <text class="d-mono" x="240" y="244" text-anchor="end">13</text>
+          <text class="d-mono" x="660" y="244" text-anchor="start">13</text>
+          <line x1="650" y1="240" x2="254" y2="240" class="flow" style="stroke:var(--slave)" marker-end="url(#w-s)"/>
+          <text class="d-lab" x="450" y="231" text-anchor="middle" fill="var(--slave)">MISO — status back</text>
+        </g>
+        <!-- CS 10 : M->S accent -->
+        <g>
+          <circle cx="250" cy="280" r="4.5" fill="var(--accent)"/><circle cx="650" cy="280" r="4.5" fill="var(--accent)"/>
+          <text class="d-mono" x="240" y="284" text-anchor="end">10</text>
+          <text class="d-mono" x="660" y="284" text-anchor="start">10</text>
+          <line class="flow-acc" x1="250" y1="280" x2="646" y2="280" marker-end="url(#w-r)"/>
+          <text class="d-lab" x="450" y="271" text-anchor="middle" fill="var(--accent)">CS</text>
+        </g>
+        <!-- IRQ 14 : S->M link -->
+        <g>
+          <circle cx="250" cy="320" r="4.5" fill="var(--link)"/><circle cx="650" cy="320" r="4.5" fill="var(--link)"/>
+          <text class="d-mono" x="240" y="324" text-anchor="end">14</text>
+          <text class="d-mono" x="660" y="324" text-anchor="start">14</text>
+          <line x1="650" y1="320" x2="254" y2="320" class="flow" marker-end="url(#w-l)"/>
+          <text class="d-lx" x="450" y="311" text-anchor="middle">TOUCH_IRQ — active low</text>
+        </g>
+        <!-- power -->
+        <g>
+          <circle cx="250" cy="356" r="4.5" fill="var(--muted)"/><circle cx="650" cy="356" r="4.5" fill="var(--muted)"/>
+          <text class="d-mono" x="240" y="360" text-anchor="end">GND</text>
+          <text class="d-mono" x="660" y="360" text-anchor="start">GND</text>
+          <line class="flow-mut" x1="250" y1="356" x2="650" y2="356" stroke-dasharray="2 4"/>
+          <text class="d-lab" x="450" y="348" text-anchor="middle">GND + 3V3 — common these first</text>
+        </g>
+      </svg>
+      <figcaption><b>Same number, both ends.</b> Purple wires are master-driven (SCLK, MOSI, CS); cyan is the slave clocking its status block back on MISO; green is the touch interrupt the slave pulls low when a tap is waiting. The master runs this on <b>HSPI, mode 0, MSB-first, 20 MHz</b>; the slave listens on <code>SPI2_HOST</code>.</figcaption>
+    </figure>
+
+    <div class="note warn">
+      <p><span class="k">Ground before signal</span>Common the grounds (and share the 3V3 supply) <b>before</b> you land the signal wires — a floating ground between two SPI devices is the fastest route to a dead first-light. The master holds IRQ up with an internal pull-up; the slave drives it low only when <code>seq</code> has advanced. Both ends are configurable: master in <code>boards/bruce-remote-master/pins_arduino.h</code>, slave in <code>slave_zx2d80ce02s/src/main.cpp</code>.</p>
+    </div>
+  </section>
+
+  <!-- 04 -->
+  <section id="radios">
+    <h2><span class="num">04</span> Wire the radios to the master</h2>
+    <p class="sub">The whole reason for the divorce. Every module below wires to the master's own GPIO — the slave has no idea any of it exists. The radio SPI bus (GPIO 4/5/6) is separate from the display link bus, so pixels and packets never contend.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Module</th><th>Bus</th><th>Master pins</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">CC1101</td><td>radio SPI</td><td class="mono">SCK 4 · MOSI 5 · MISO 6 · <b>CS 7</b> · GDO0 15</td></tr>
+          <tr><td class="mono">nRF24L01+</td><td>radio SPI <span style="color:var(--muted)">(shared)</span></td><td class="mono"><b>CS 16 · CE 17</b> · SCK/MOSI/MISO shared 4/5/6</td></tr>
+          <tr><td class="mono">PN532</td><td>I2C</td><td class="mono">SDA 8 · SCL 9 <span style="color:var(--muted)">(@0x24)</span></td></tr>
+          <tr><td class="mono">GPS</td><td>UART</td><td class="mono">TX 18 · RX 21</td></tr>
+          <tr><td class="mono">IR TX / RX</td><td>GPIO</td><td class="mono">TX 1 · RX 2 <span style="color:var(--muted)">(also 15/16/17)</span></td></tr>
+          <tr><td class="mono">microSD</td><td>radio SPI</td><td class="mono">CS −1 by default — set to your wiring</td></tr>
+          <tr><td class="mono">BOOT button</td><td>GPIO</td><td class="mono">0 — doubles as Bruce's <b>Select</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <p><span class="k">Why these pins</span>The map dodges the octal flash/PSRAM range (GPIO 26–37) an N16R8 uses internally, the native-USB pins (19/20), and UART0 (43/44). Two dummy TFT pins are also defined so TFT_eSPI still compiles — they are <b>never driven</b>; <code>tft.init()</code> allocates the canvas instead of touching a panel.</p>
+    </div>
+  </section>
+
+  <!-- 05 -->
+  <section id="flash">
+    <h2><span class="num">05</span> Flash both boards</h2>
+    <p class="sub">Two firmwares, two PlatformIO projects. Flash the <b>slave first</b> so it's already listening on SPI when the master boots and immediately starts streaming its first full frame.</p>
+    <pre><code><span class="cmt"># 1 · SLAVE — the display board  (standalone LovyanGFX blitter, none of Bruce's logic)</span>
+cd remote_display/slave_zx2d80ce02s
+<span class="b-s">pio run -t upload</span>                        <span class="cmt"># → firmware ~441 KB · Flash 13% · RAM 10%</span>
+
+<span class="cmt"># 2 · MASTER — the radios board  (full Bruce, headless PSRAM canvas)</span>
+<span class="b-m">pio run -e bruce-remote-master -t upload</span>   <span class="cmt"># → firmware ~3.75 MB · Flash 22%/16MB</span></code></pre>
+    <div class="note ok">
+      <p><span class="k">Both compile clean today</span>The slave project is standalone — it isn't part of the Bruce build and shares exactly one file with the master, <code>bruce_remote_link.h</code>. The master is a normal Bruce board target. What's left is on-hardware bring-up (below); the SPI timing and color order simply can't be proven at compile time.</p>
+    </div>
+  </section>
+
+  <!-- 06 -->
+  <section id="pixels">
+    <h2><span class="num">06</span> How the picture gets down six wires</h2>
+    <p class="sub">A full 240×320 UI over a single SPI link sounds slow. It isn't — because a still screen sends nothing at all. The master ships only the pixels that actually changed.</p>
+
+    <figure class="fig">
+      <svg viewBox="0 0 900 320" role="img" aria-label="The PSRAM framebuffer is sliced into 20 horizontal bands of 16 rows. A background task CRC-checks each band; only bands whose checksum changed are sent over SPI, so an idle screen sends zero bytes. The slave blits the changed bands to its ST7789 panel.">
+        <defs>
+          <marker id="p-link" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--link)"/></marker>
+          <marker id="p-mut" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/></marker>
+        </defs>
+
+        <!-- framebuffer -->
+        <text class="d-lab" x="135" y="44" text-anchor="middle">PSRAM framebuffer</text>
+        <g>
+          <rect class="d-box" x="70" y="56" width="130" height="26"/>
+          <rect class="d-box" x="70" y="82" width="130" height="26"/>
+          <rect class="d-master" x="70" y="108" width="130" height="26"/>
+          <rect class="d-box" x="70" y="134" width="130" height="26"/>
+          <rect class="d-box" x="70" y="160" width="130" height="26"/>
+          <rect class="d-master" x="70" y="186" width="130" height="26"/>
+          <rect class="d-box" x="70" y="212" width="130" height="26"/>
+          <rect class="d-box" x="70" y="238" width="130" height="26"/>
+        </g>
+        <text class="d-lab" x="135" y="284" text-anchor="middle">20 bands × 16 rows</text>
+
+        <!-- CRC node -->
+        <line class="flow-mut" x1="200" y1="150" x2="288" y2="150" marker-end="url(#p-mut)"/>
+        <rect class="d-box" x="290" y="112" width="180" height="76" rx="12"/>
+        <text class="d-title" x="380" y="140" text-anchor="middle" font-size="13.5">CRC each band</text>
+        <text class="d-lab" x="380" y="162" text-anchor="middle">changed since last?</text>
+
+        <!-- outcomes -->
+        <line class="flow" x1="470" y1="132" x2="668" y2="120" marker-end="url(#p-link)"/>
+        <text class="d-lx" x="565" y="112" text-anchor="middle">changed → send band</text>
+        <line class="flow-mut" x1="470" y1="168" x2="560" y2="182" marker-end="url(#p-mut)"/>
+        <text class="d-lab" x="565" y="200" text-anchor="middle">unchanged → nothing on the wire</text>
+
+        <!-- slave panel -->
+        <text class="d-lab" x="755" y="44" text-anchor="middle">SLAVE · ST7789</text>
+        <rect class="d-slave" x="690" y="56" width="130" height="208" rx="8" fill="var(--panel-2)"/>
+        <rect class="d-master" x="700" y="108" width="110" height="20"/>
+        <rect class="d-master" x="700" y="186" width="110" height="20"/>
+        <line x1="700" y1="76" x2="800" y2="76" stroke="var(--slave)" opacity=".5"/>
+        <line x1="700" y1="150" x2="790" y2="150" stroke="var(--slave)" opacity=".5"/>
+        <line x1="700" y1="240" x2="796" y2="240" stroke="var(--slave)" opacity=".5"/>
+      </svg>
+      <figcaption><b>Idle screen → 0 bytes.</b> A background task on core 0 CRC-checks all 20 bands every ~20 ms and ships only the ones that moved (a 16-byte header, then that band's RGB565). A full redraw is ~150 KB (~75 ms at 20 MHz); a typical partial update is sub-millisecond. Because <b>real pixels</b> are rendered on the master, the slave never parses a font, sprite, JPEG or QR — it just blits bytes, which is what makes it pixel-perfect.</figcaption>
+    </figure>
+  </section>
+
+  <!-- 07 -->
+  <section id="bringup">
+    <h2><span class="num">07</span> First light — bring-up in order</h2>
+    <p class="sub">Each milestone unlocks the next. Everything here needs both boards on the bench — none of it can be proven at compile time, so budget a session with a logic analyzer handy for step&nbsp;1.</p>
+    <ol class="steps">
+      <li>
+        <h4>SPI pixel path</h4>
+        <p>Send a header + one band and confirm the slave blits it. Tune the header→payload gap (<code>REMOTE_LINK_GAP_US</code>, 40&nbsp;µs default) so the slave's DMA re-arms in time, and check color order with a known test tile — flip <code>rgb_order</code> / <code>setSwapBytes</code> if red and blue swap.</p>
+      </li>
+      <li>
+        <h4>Boot Bruce on the canvas</h4>
+        <p>Let the master run; the first flush is full-frame. The Bruce menu should appear on the slave panel.</p>
+      </li>
+      <li>
+        <h4>Touch</h4>
+        <p>Tap the screen: the slave raises IRQ, the master polls over the link, and the menu should respond. Verify the one-event <code>seq</code> handshake and that coordinates land where you tapped.</p>
+      </li>
+      <li>
+        <h4>Dirty-band tuning</h4>
+        <p>Watch flush cadence vs. CPU; once it's stable, raise <code>REMOTE_LINK_HZ</code> past the initial 20&nbsp;MHz.</p>
+      </li>
+      <li>
+        <h4>Radios</h4>
+        <p>Wire a module and run an app end-to-end — the payoff, and the whole point of splitting.</p>
+      </li>
+      <li>
+        <h4>Backlight &amp; sleep</h4>
+        <p>Confirm the <code>BACKLIGHT</code> and <code>SLEEP</code> control frames dim, wake, and blank the panel from the master.</p>
+      </li>
+    </ol>
+  </section>
+
+  <!-- 08 -->
+  <section id="fineprint">
+    <h2><span class="num">08</span> The fine print</h2>
+    <p class="sub">Two known v1 limitations, neither fatal — both honest consequences of rendering on one board and blitting on the other.</p>
+    <div class="note">
+      <p><span class="k">Portrait only</span>v1 is pinned to <b>240×320</b> so the canvas dimensions equal the slave's native panel. Landscape rotation is deferred; the <code>ROTATION</code> control frame is wired but the canvas keeps portrait geometry.</p>
+    </div>
+    <div class="note">
+      <p><span class="k">pushSprite() composites nowhere</span>Sub-sprites pushed onto TFT_eSPI's (headless) parent panel don't reach the canvas. The only core user is the <code>tururururu.cpp</code> shark easter-egg; the <b>entire real UI draws straight to <code>tft</code></b> and is unaffected.</p>
+    </div>
+    <div class="note bad">
+      <p><span class="k">Status</span>The wire protocol is host-compiled and self-tested (struct sizes, checksums, corruption). Both firmwares compile clean. Runtime behavior — SPI-slave DMA re-arm timing, color order, and the touch handshake — is <b>inherently on-hardware</b> and is what the milestones above verify.</p>
+    </div>
+  </section>
+
+  <footer>
+    <span>Divorced Bruce · split-display build — the master keeps the radios, the slave keeps the screen.</span>
+    <span class="sig">6-wire SPI seam · pixel-perfect PSRAM canvas · dirty-band streaming · portrait 240×320 (v1)</span>
+  </footer>
+</div>

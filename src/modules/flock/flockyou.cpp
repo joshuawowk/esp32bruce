@@ -69,7 +69,11 @@ struct FYDet {
     double   lon;
 };
 
-static FYDet             g_det[FY_MAX];
+// Heap-allocated (not static .bss): FYDet is ~144 B, so FY_MAX entries is
+// ~28 KB — enough to overflow DRAM on the smallest ESP32 targets (e.g.
+// M5StickC-Plus2, no PSRAM). Allocated lazily on first use via fyEnsureReady()
+// and kept for the session, so the RAM is free for other apps until Flock runs.
+static FYDet            *g_det      = nullptr;
 static int               g_detCount = 0;
 static SemaphoreHandle_t g_mutex    = nullptr;
 
@@ -538,12 +542,23 @@ static bool fyWriteCsv() {
 // APP LIFECYCLE
 // ============================================================================
 
-static void fyEnsureMutex() {
-    if (!g_mutex) g_mutex = xSemaphoreCreateMutex();
+// Lazily allocate the detection table and mutex. Returns false if either
+// allocation fails; callers must not touch g_det when this returns false
+// (fyAdd/fySnapshot already gate on g_mutex, which stays null on failure).
+static bool fyEnsureReady() {
+    if (!g_det) {
+        g_det = (FYDet *)calloc(FY_MAX, sizeof(FYDet));
+        if (!g_det) return false;
+    }
+    if (!g_mutex) {
+        g_mutex = xSemaphoreCreateMutex();
+        if (!g_mutex) return false;
+    }
+    return true;
 }
 
 static void fyRun(bool ble, bool wifi) {
-    fyEnsureMutex();
+    if (!fyEnsureReady()) { displayError("Out of memory", true); returnToMenu = true; return; }
     returnToMenu = false;
 
     drawMainBorderWithTitle("Flock-You");
@@ -591,18 +606,17 @@ void flockyou_run_ble()  { fyRun(true,  false); }
 void flockyou_run_wifi() { fyRun(false, true);  }
 
 void flockyou_clear() {
-    fyEnsureMutex();
-    if (g_mutex && xSemaphoreTake(g_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
+    if (g_det && fyEnsureReady() &&
+        xSemaphoreTake(g_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
         g_detCount = 0;
-        memset(g_det, 0, sizeof(g_det));
+        memset(g_det, 0, (size_t)FY_MAX * sizeof(FYDet));
         xSemaphoreGive(g_mutex);
     }
     displaySuccess("Session cleared", true);
 }
 
 void flockyou_export() {
-    fyEnsureMutex();
-    if (g_detCount == 0) { displayError("No detections yet", true); return; }
+    if (!g_det || g_detCount == 0) { displayError("No detections yet", true); return; }
     if (fyWriteCsv()) displaySuccess("Saved to /BruceFlock", true);
     else              displayError("Export failed", true);
 }
