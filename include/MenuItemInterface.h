@@ -107,7 +107,14 @@ public:
 
 protected:
     const char *_name = "";
-    uint8_t rotation = ROTATION;
+    // 0xFF sentinel (not any valid rotation) so the draw() guard runs resetCoordinates() ONCE on the
+    // first render, after begin_tft() has set the live tftWidth/tftHeight. Menu items are members of the
+    // global `MainMenu mainMenu`, constructed at static-init BEFORE begin_tft(), so the iconCenterX/Y
+    // member initializers below cache tftWidth=TFT_HEIGHT (the pre-begin_tft value). On boards whose
+    // native TFT_HEIGHT != the runtime landscape width (e.g. the remote-canvas master: 320x240 canvas
+    // but TFT_HEIGHT=240) that stale cache centers the main menu 40px off; the one-time recompute fixes
+    // it. No-op elsewhere (there the cached value already equals the live one).
+    uint8_t rotation = 0xFF;
 
     int iconAreaH =
         ((tftHeight - 2 * BORDER_PAD_Y) % 2 == 0 ? tftHeight - 2 * BORDER_PAD_Y

@@ -28,13 +28,38 @@
 #define REMOTE_LINK_IRQ 14
 #endif
 #ifndef REMOTE_LINK_HZ
-#define REMOTE_LINK_HZ 20000000 /* 20 MHz; raise once the link is proven */
+#define REMOTE_LINK_HZ 10000000 /* 10 MHz bring-up (was 20); raise once the link is proven */
+#endif
+#ifndef REMOTE_LINK_CTRL_HZ
+/* Control frames (send_control) are full-duplex: the master READS the slave's status on MISO.
+ * The ESP32-S3 spi_slave DMA-TX (MISO) launch edge lands right on a mode-1 master's latch edge,
+ * so at 10 MHz the ~50ns settle margin is too tight and the master reads garbage (a constant
+ * 0x40). Clock control frames much slower (2 MHz -> 250ns margin) so MISO is read cleanly. Tiles
+ * (send_tile) are write-only (MOSI) and stay at REMOTE_LINK_HZ. */
+#define REMOTE_LINK_CTRL_HZ 2000000
+#endif
+#ifndef REMOTE_LINK_SPI_MODE
+/* MUST be mode 1 or 3: the ESP32-S3 spi_slave DMA RX path cannot sample MOSI on the first
+ * clock edge in modes 0/2 -> it drops the MSB and reads every frame shifted left 1 bit
+ * (magic 0xB2D5 arrives as 0x65AA). Espressif: "DMA requires SPI modes 1 and 3." The slave
+ * (slvcfg.mode) MUST match this exactly. */
+#define REMOTE_LINK_SPI_MODE SPI_MODE1
 #endif
 #ifndef REMOTE_LINK_GAP_US
-#define REMOTE_LINK_GAP_US 40 /* header->payload gap so the slave can re-arm RX */
+/* Header->payload gap: the slave must return from the header transaction, parse it, and
+ * re-arm its RX DMA before the master clocks the payload. 40us was too tight (garbled
+ * tiles); 500us gives generous margin for bring-up. Reduce once the link is proven. */
+#define REMOTE_LINK_GAP_US 500
 #endif
 #ifndef REMOTE_LINK_FLUSH_MS
 #define REMOTE_LINK_FLUSH_MS 20 /* ~50 Hz band-diff cadence */
+#endif
+#ifndef REMOTE_LINK_TILE_GAP_MS
+/* Inter-tile pacing: after a band's payload the slave spends ~0.5-1ms in pushImage()
+ * blitting it to the panel, during which it is NOT armed for the next SPI transaction.
+ * The master must wait before clocking the next tile or the slave misses the header and
+ * desyncs permanently (black screen). Generous for bring-up; reduce once proven. */
+#define REMOTE_LINK_TILE_GAP_MS 3
 #endif
 #ifndef REMOTE_LINK_SPI_BUS
 #define REMOTE_LINK_SPI_BUS HSPI
@@ -56,13 +81,21 @@ static void send_control(brl_header_t *h, brl_status_t *rxstatus) {
     if (!linkMux) return;
     h->seq = g_seq++;
     brl_header_finalize(h);
-    uint8_t rx[16];
+    uint8_t rx[16] = {0};
     xSemaphoreTake(linkMux, portMAX_DELAY);
-    linkSPI.beginTransaction(SPISettings(REMOTE_LINK_HZ, MSBFIRST, SPI_MODE0));
-    digitalWrite(REMOTE_LINK_CS, LOW);
-    linkSPI.transferBytes((const uint8_t *)h, rx, 16); /* full-duplex: MISO = status */
-    digitalWrite(REMOTE_LINK_CS, HIGH);
-    linkSPI.endTransaction();
+    // When a status readback is needed, retry a few times WHILE holding the mutex: during heavy tile
+    // streaming the slave may be mid-blit / re-arming exactly when we poll, so its MISO reads back
+    // garbage. Holding the mutex blocks the flush task from injecting a tile, so after the first frame
+    // the slave re-arms and a retry gets valid status. (Ops with no readback exit after one frame.)
+    for (int attempt = 0; attempt < 10; attempt++) {
+        linkSPI.beginTransaction(SPISettings(REMOTE_LINK_CTRL_HZ, MSBFIRST, REMOTE_LINK_SPI_MODE));
+        digitalWrite(REMOTE_LINK_CS, LOW);
+        linkSPI.transferBytes((const uint8_t *)h, rx, 16); /* full-duplex: MISO = status */
+        digitalWrite(REMOTE_LINK_CS, HIGH);
+        linkSPI.endTransaction();
+        if (!rxstatus || brl_status_valid((const brl_status_t *)rx)) break;
+        delayMicroseconds(400); // let the slave finish its current frame + re-arm, then retry
+    }
     xSemaphoreGive(linkMux);
     if (rxstatus) memcpy(rxstatus, rx, 16);
 }
@@ -80,16 +113,23 @@ static void send_tile(int x, int y, int w, int h, const uint16_t *px) {
     const size_t plen = (size_t)w * (size_t)h * 2u;
 
     xSemaphoreTake(linkMux, portMAX_DELAY);
-    linkSPI.beginTransaction(SPISettings(REMOTE_LINK_HZ, MSBFIRST, SPI_MODE0));
+    linkSPI.beginTransaction(SPISettings(REMOTE_LINK_HZ, MSBFIRST, REMOTE_LINK_SPI_MODE));
+    // Self-framing: header + payload in ONE CS assertion (no gap, no inner CS toggle). The slave
+    // receives them as one CS-delimited frame and parses the header from the front. This means
+    // the slave is only ever armed for ONE kind of transaction (the max-size self-framing xfer,
+    // with its status block on MISO), so a concurrent status read (poll_touch) always reads valid
+    // status -- there is no "armed for a payload / MISO undriven" window to race.
     digitalWrite(REMOTE_LINK_CS, LOW);
-    linkSPI.writeBytes((const uint8_t *)&hd, 16); /* header transaction */
-    digitalWrite(REMOTE_LINK_CS, HIGH);
-    delayMicroseconds(REMOTE_LINK_GAP_US); /* let the slave post its payload RX */
-    digitalWrite(REMOTE_LINK_CS, LOW);
-    linkSPI.writeBytes((const uint8_t *)px, plen); /* pixel transaction */
+    // Use full-duplex transferBytes (MISO discarded) rather than write-only writeBytes so the SPI
+    // peripheral stays in one consistent mode -- a write-only tile followed by a full-duplex status
+    // read otherwise leaves the readback returning zeros.
+    linkSPI.transferBytes((const uint8_t *)&hd, nullptr, 16); /* 16-byte header ... */
+    linkSPI.transferBytes((const uint8_t *)px, nullptr, plen); /* ... immediately followed by the pixels */
     digitalWrite(REMOTE_LINK_CS, HIGH);
     linkSPI.endTransaction();
     xSemaphoreGive(linkMux);
+    // Pace between tiles so the slave can blit + re-arm before the next frame.
+    vTaskDelay(pdMS_TO_TICKS(REMOTE_LINK_TILE_GAP_MS));
 }
 
 /* ------------------------------ Public API ------------------------------- */
@@ -161,8 +201,14 @@ static void remote_canvas_begin(uint16_t *fb, int w, int h) {
 
     brl_header_t hs = {};
     hs.opcode = BRL_OP_SYNC;
-    brl_status_t st;
-    send_control(&hs, &st);
+    brl_status_t st = {};
+    // Retry SYNC until the slave answers: at cold start the slave may still be in its
+    // ~2s boot/self-test and not yet servicing SPI, so its MISO reads back garbage.
+    for (int i = 0; i < 100; i++) {
+        send_control(&hs, &st);
+        if (brl_status_valid(&st)) break;
+        delay(20);
+    }
     // The slave reports the canvas geometry it expects; mismatch means a
     // wrong/stale slave firmware is flashed (e.g. a portrait proto-v1 build).
     if (brl_status_valid(&st) && (st.panel_w != BRL_PANEL_W || st.panel_h != BRL_PANEL_H)) {
@@ -182,9 +228,20 @@ TFT_eSPI &tft_display::parent() {
 
 tft_display::tft_display(int16_t _W, int16_t _H) : TFT_eSprite(&parent()), _cw(_W), _ch(_H) {}
 
+// TFT_eSPI creates its global recursive `tftMutex` inside TFT_eSPI::init(), which we
+// deliberately bypass (ensureInit allocates the sprite instead of touching a panel).
+// But the base-class shape helpers that TFT_eSprite does NOT override (drawRect,
+// drawCircle, drawRoundRect, fillRoundRect, drawTriangle, ...) still call
+// begin_tft_write/end_tft_write, which take/give tftMutex. Left NULL, the very first
+// such call aborts (xQueueGiveMutexRecursive assert on a NULL mutex). Create it here
+// so those paths are safe no-ops on the headless canvas (CS is a dummy pin; the
+// overridden primitives render into the sprite buffer, so no real panel I/O occurs).
+extern SemaphoreHandle_t tftMutex;
+
 void tft_display::ensureInit() {
     if (_ready) return;
     _ready = true;
+    if (!tftMutex) tftMutex = xSemaphoreCreateRecursiveMutex();
     setColorDepth(16);
     setAttribute(PSRAM_ENABLE, true);
     void *buf = createSprite(_cw, _ch);

@@ -55,6 +55,14 @@
  * buffer at least this big. */
 #define BRL_MAX_PAYLOAD BRL_BAND_BYTES
 
+/* Self-framing: every master->slave message is ONE CS-framed SPI transaction =
+ * a 16-byte header immediately followed (same CS assertion) by 0..BRL_MAX_PAYLOAD
+ * payload bytes. The slave always arms a single transaction of this max size with
+ * its status block as the TX buffer, so MISO always carries valid status regardless
+ * of what the master sends. CS deassertion delimits the frame; the slave reads the
+ * actual byte count from the transaction and parses the header from the front. */
+#define BRL_MAX_FRAME (16 + BRL_MAX_PAYLOAD)
+
 /* ------------------------------------------------------------------ */
 /* Framing                                                             */
 /* ------------------------------------------------------------------ */
