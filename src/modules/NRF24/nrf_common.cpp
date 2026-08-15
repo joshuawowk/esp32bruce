@@ -3,7 +3,11 @@
 #include "../../core/mykeyboard.h"
 
 RF24 NRFradio(bruceConfigPins.NRF24_bus.io0, bruceConfigPins.NRF24_bus.cs);
+#ifdef USE_REMOTE_CANVAS
+HardwareSerial NRFSerial = HardwareSerial(1); // split-display master: UART2 is reserved for the touch link
+#else
 HardwareSerial NRFSerial = HardwareSerial(2); // Uses UART2 for External NRF's
+#endif
 SPIClass *NRFSPI;
 
 void nrf_info() {

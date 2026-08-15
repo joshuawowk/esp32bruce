@@ -159,4 +159,45 @@ static inline uint32_t brl_payload_len(const brl_header_t *h) {
     return (h->opcode == BRL_OP_TILE) ? ((uint32_t)h->w * (uint32_t)h->h * 2u) : 0u;
 }
 
+/* ------------------------------------------------------------------ */
+/* Touch return channel (slave -> master over a UART)                  */
+/* ------------------------------------------------------------------ */
+/* The ESP32-S3 `spi_slave` peripheral cannot reliably clock varying multi-byte
+ * data back on MISO to an Arduino-SPIClass master (DMA launches MISO on the
+ * master's latch edge -> the master samples the idle level; confirmed on hw:
+ * constant levels read fine, any varying pattern collapses to a repeated byte,
+ * and NO clock rate or mid-bit bit-bang fixes it). So touch does NOT ride the
+ * SPI link. Instead the (electrically-good) pin-13 wire is repurposed as a
+ * one-way UART: the slave TXes a small framed packet on every touch change and
+ * as a periodic heartbeat; the master RXes it. Async + self-clocked = immune to
+ * the SPI-slave launch-edge timing problem. The SPI link stays master->slave
+ * only (tiles + control commands, all write-only now). */
+#define BRL_UART_BAUD 115200
+#define BRL_TOUCH_MAGIC0 0xA5
+#define BRL_TOUCH_MAGIC1 0x5A
+
+/* 9-byte framed touch packet. Coordinates are already in the shared landscape
+ * 320x240 canvas frame (the slave applies map_touch before sending). */
+typedef struct __attribute__((packed)) {
+    uint8_t magic0;   /* BRL_TOUCH_MAGIC0                 [0] */
+    uint8_t magic1;   /* BRL_TOUCH_MAGIC1                 [1] */
+    uint8_t state;    /* BRL_TOUCH_*                      [2] */
+    uint16_t x;       /* canvas x                         [3] */
+    uint16_t y;       /* canvas y                         [5] */
+    uint8_t seq;      /* ++ on each new distinct event    [7] */
+    uint8_t checksum; /* brl_checksum(pkt, 8)             [8] */
+} brl_touch_pkt_t;
+
+typedef char brl_touch_pkt_size_check[(sizeof(brl_touch_pkt_t) == 9) ? 1 : -1];
+
+static inline void brl_touch_finalize(brl_touch_pkt_t *p) {
+    p->magic0 = BRL_TOUCH_MAGIC0;
+    p->magic1 = BRL_TOUCH_MAGIC1;
+    p->checksum = brl_checksum(p, 8);
+}
+
+static inline int brl_touch_valid(const brl_touch_pkt_t *p) {
+    return p->magic0 == BRL_TOUCH_MAGIC0 && p->magic1 == BRL_TOUCH_MAGIC1 && p->checksum == brl_checksum(p, 8);
+}
+
 #endif /* BRUCE_REMOTE_LINK_H */

@@ -8,6 +8,12 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <esp_rom_crc.h>
+#include <esp_rom_sys.h> // esp_rom_printf -> UART0/CH343/ttyACM0 bring-up logs (master native USB absent)
+
+// Log each received UART touch packet to UART0 (CH343/ttyACM0) for bring-up verification. Set 0 to silence.
+#ifndef BRL_TOUCH_LOG
+#define BRL_TOUCH_LOG 1
+#endif
 
 /* ----------------------- Link pin / timing config ------------------------ */
 /* Override any of these in the board's pins_arduino.h. Defaults target the
@@ -31,11 +37,9 @@
 #define REMOTE_LINK_HZ 10000000 /* 10 MHz bring-up (was 20); raise once the link is proven */
 #endif
 #ifndef REMOTE_LINK_CTRL_HZ
-/* Control frames (send_control) are full-duplex: the master READS the slave's status on MISO.
- * The ESP32-S3 spi_slave DMA-TX (MISO) launch edge lands right on a mode-1 master's latch edge,
- * so at 10 MHz the ~50ns settle margin is too tight and the master reads garbage (a constant
- * 0x40). Clock control frames much slower (2 MHz -> 250ns margin) so MISO is read cleanly. Tiles
- * (send_tile) are write-only (MOSI) and stay at REMOTE_LINK_HZ. */
+/* Control frames (send_control: backlight/sleep/rotation) are write-only now -- touch comes back
+ * over the UART, not MISO -- so this clock is not timing-critical. Kept modest (2 MHz). Tiles
+ * (send_tile) are also write-only and run at REMOTE_LINK_HZ. */
 #define REMOTE_LINK_CTRL_HZ 2000000
 #endif
 #ifndef REMOTE_LINK_SPI_MODE
@@ -65,6 +69,18 @@
 #define REMOTE_LINK_SPI_BUS HSPI
 #endif
 
+/* Touch-return link: the slave TXes framed touch packets on the pin-13 wire (formerly SPI MISO),
+ * which the master receives on hardware UART2. UART2 is dedicated to touch on the split-display
+ * master: Bruce's GPS/NRF24 modules (the other UART2 users) are moved to UART1 on this board (see
+ * the USE_REMOTE_CANVAS guards in gps_tracker.h / wardriving.h / nrf_common.cpp), so nothing else
+ * ever reprograms UART2 -> touch never conflicts. */
+#ifndef REMOTE_LINK_UART_RX
+#define REMOTE_LINK_UART_RX REMOTE_LINK_MISO /* pin 13 */
+#endif
+#ifndef REMOTE_LINK_UART_NUM
+#define REMOTE_LINK_UART_NUM 2
+#endif
+
 /* ------------------------------ Link state ------------------------------- */
 static SPIClass linkSPI(REMOTE_LINK_SPI_BUS);
 static SemaphoreHandle_t linkMux = nullptr;
@@ -73,31 +89,29 @@ static int g_w = 0, g_h = 0;
 static uint32_t bandCrc[BRL_NUM_BANDS];
 static uint8_t g_seq = 0;
 
+// Touch UART receiver + framing state (only touched by the InputHandler task via poll_touch).
+static HardwareSerial LinkRx(REMOTE_LINK_UART_NUM);
+static uint8_t g_touch_last_seq = 0;
+static bool g_touch_seq_init = false;
+
 /* Forward decl (called by tft_display::ensureInit below). */
 static void remote_canvas_begin(uint16_t *fb, int w, int h);
 
 /* --------------------------- Low-level frames ---------------------------- */
-static void send_control(brl_header_t *h, brl_status_t *rxstatus) {
+// Control frames are now WRITE-ONLY (backlight/sleep/rotation). The master no longer reads the
+// slave over SPI -- touch comes back over the UART (see remote_canvas_poll_touch). The old
+// full-duplex MISO readback was removed: the ESP32-S3 spi_slave cannot clock varying data back.
+static void send_control(brl_header_t *h) {
     if (!linkMux) return;
     h->seq = g_seq++;
     brl_header_finalize(h);
-    uint8_t rx[16] = {0};
     xSemaphoreTake(linkMux, portMAX_DELAY);
-    // When a status readback is needed, retry a few times WHILE holding the mutex: during heavy tile
-    // streaming the slave may be mid-blit / re-arming exactly when we poll, so its MISO reads back
-    // garbage. Holding the mutex blocks the flush task from injecting a tile, so after the first frame
-    // the slave re-arms and a retry gets valid status. (Ops with no readback exit after one frame.)
-    for (int attempt = 0; attempt < 10; attempt++) {
-        linkSPI.beginTransaction(SPISettings(REMOTE_LINK_CTRL_HZ, MSBFIRST, REMOTE_LINK_SPI_MODE));
-        digitalWrite(REMOTE_LINK_CS, LOW);
-        linkSPI.transferBytes((const uint8_t *)h, rx, 16); /* full-duplex: MISO = status */
-        digitalWrite(REMOTE_LINK_CS, HIGH);
-        linkSPI.endTransaction();
-        if (!rxstatus || brl_status_valid((const brl_status_t *)rx)) break;
-        delayMicroseconds(400); // let the slave finish its current frame + re-arm, then retry
-    }
+    linkSPI.beginTransaction(SPISettings(REMOTE_LINK_CTRL_HZ, MSBFIRST, REMOTE_LINK_SPI_MODE));
+    digitalWrite(REMOTE_LINK_CS, LOW);
+    linkSPI.transferBytes((const uint8_t *)h, nullptr, 16);
+    digitalWrite(REMOTE_LINK_CS, HIGH);
+    linkSPI.endTransaction();
     xSemaphoreGive(linkMux);
-    if (rxstatus) memcpy(rxstatus, rx, 16);
 }
 
 static void send_tile(int x, int y, int w, int h, const uint16_t *px) {
@@ -137,30 +151,71 @@ void remote_canvas_send_backlight(uint8_t level) {
     brl_header_t h = {};
     h.opcode = BRL_OP_BACKLIGHT;
     h.arg0 = level;
-    send_control(&h, nullptr);
+    send_control(&h);
 }
 
 void remote_canvas_send_sleep(bool on) {
     brl_header_t h = {};
     h.opcode = BRL_OP_SLEEP;
     h.arg0 = on ? 1 : 0;
-    send_control(&h, nullptr);
+    send_control(&h);
 }
 
 void remote_canvas_send_rotation(uint8_t r) {
     brl_header_t h = {};
     h.opcode = BRL_OP_ROTATION;
     h.arg0 = r & 0x03;
-    send_control(&h, nullptr);
+    send_control(&h);
 }
 
+// Drain the touch UART and return the most recent COMPLETE, checksum-valid packet seen in this
+// call (there may be several buffered -- heartbeats + events; we keep the last). A tiny sliding
+// state machine resyncs on the 2-byte magic. Returns false if no full valid packet was available.
+static bool link_read_touch(brl_touch_pkt_t *out) {
+    static uint8_t buf[sizeof(brl_touch_pkt_t)];
+    static uint8_t n = 0;
+    bool got = false;
+    while (LinkRx.available() > 0) {
+        uint8_t b = (uint8_t)LinkRx.read();
+        if (n == 0) {
+            if (b == BRL_TOUCH_MAGIC0) buf[n++] = b;
+        } else if (n == 1) {
+            if (b == BRL_TOUCH_MAGIC1) buf[n++] = b;
+            else { n = 0; if (b == BRL_TOUCH_MAGIC0) buf[n++] = b; } // resync (b could be a fresh magic0)
+        } else {
+            buf[n++] = b;
+            if (n == sizeof(brl_touch_pkt_t)) {
+                n = 0;
+                brl_touch_pkt_t p;
+                memcpy(&p, buf, sizeof p);
+                if (brl_touch_valid(&p)) {
+                    *out = p;
+                    got = true; // keep scanning; last valid packet wins
+                }
+            }
+        }
+    }
+    return got;
+}
+
+// Return the latest NEW touch event (seq advanced) over the UART, mapped into `out`. Heartbeats
+// (same seq) are ignored. Called from the InputHandler task at ~50-100 Hz; the UART driver buffers
+// bytes between calls so nothing is lost. Signature unchanged so board interface.cpp is unaffected.
 bool remote_canvas_poll_touch(brl_status_t *out) {
-    brl_header_t h = {};
-    h.opcode = BRL_OP_POLLTOUCH;
-    brl_status_t st;
-    send_control(&h, &st);
-    if (!brl_status_valid(&st)) return false;
-    if (out) *out = st;
+    brl_touch_pkt_t p;
+    if (!link_read_touch(&p)) return false;
+#if BRL_TOUCH_LOG
+    esp_rom_printf("URX state=%d x=%d y=%d seq=%d\n", (int)p.state, (int)p.x, (int)p.y, (int)p.seq);
+#endif
+    if (g_touch_seq_init && p.seq == g_touch_last_seq) return false; // heartbeat / duplicate
+    g_touch_seq_init = true;
+    g_touch_last_seq = p.seq;
+    if (out) {
+        out->touch_state = p.state;
+        out->touch_x = p.x;
+        out->touch_y = p.y;
+        out->seq = p.seq;
+    }
     return true;
 }
 
@@ -191,32 +246,18 @@ static void remote_canvas_begin(uint16_t *fb, int w, int h) {
 
     pinMode(REMOTE_LINK_CS, OUTPUT);
     digitalWrite(REMOTE_LINK_CS, HIGH);
-    pinMode(REMOTE_LINK_IRQ, INPUT_PULLUP);
-    linkSPI.begin(REMOTE_LINK_SCLK, REMOTE_LINK_MISO, REMOTE_LINK_MOSI, -1);
+    // SPI link is now master->slave only (tiles + control): MISO (pin 13) is freed for the touch
+    // UART RX, so pass -1 for MISO. There is no SPI readback / SYNC handshake anymore; the slave's
+    // liveness is confirmed by its UART heartbeat instead.
+    linkSPI.begin(REMOTE_LINK_SCLK, -1, REMOTE_LINK_MOSI, -1);
+    LinkRx.begin(BRL_UART_BAUD, SERIAL_8N1, REMOTE_LINK_UART_RX, /*tx=*/-1); // touch RX on pin 13 (UART2)
 
     // Band geometry must match the shared protocol.
     if (w != BRL_PANEL_W || h != BRL_PANEL_H) {
         log_e("remote_canvas: canvas %dx%d != protocol %dx%d", w, h, BRL_PANEL_W, BRL_PANEL_H);
     }
 
-    brl_header_t hs = {};
-    hs.opcode = BRL_OP_SYNC;
-    brl_status_t st = {};
-    // Retry SYNC until the slave answers: at cold start the slave may still be in its
-    // ~2s boot/self-test and not yet servicing SPI, so its MISO reads back garbage.
-    for (int i = 0; i < 100; i++) {
-        send_control(&hs, &st);
-        if (brl_status_valid(&st)) break;
-        delay(20);
-    }
-    // The slave reports the canvas geometry it expects; mismatch means a
-    // wrong/stale slave firmware is flashed (e.g. a portrait proto-v1 build).
-    if (brl_status_valid(&st) && (st.panel_w != BRL_PANEL_W || st.panel_h != BRL_PANEL_H)) {
-        log_e("remote_canvas: slave reports %dx%d, expected %dx%d (proto v%d) -- flash mismatch?",
-              st.panel_w, st.panel_h, BRL_PANEL_W, BRL_PANEL_H, st.proto);
-    }
     remote_canvas_send_backlight(255);
-
     xTaskCreatePinnedToCore(flushTask, "canvasFlush", 4096, nullptr, 1, nullptr, 0);
 }
 

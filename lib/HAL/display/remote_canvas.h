@@ -100,8 +100,8 @@ public:
 void remote_canvas_send_backlight(uint8_t level);
 void remote_canvas_send_sleep(bool on);
 void remote_canvas_send_rotation(uint8_t r);
-// Sends BRL_OP_POLLTOUCH and returns the slave's status block. Returns true iff
-// a checksum-valid status was read.
+// Drains the touch UART (slave pushes packets on pin 13) and, if a new event arrived, fills `out`
+// (touch_state/x/y/seq) and returns true. Heartbeats/duplicates return false. Non-blocking.
 bool remote_canvas_poll_touch(brl_status_t *out);
 
 #endif // USE_REMOTE_CANVAS

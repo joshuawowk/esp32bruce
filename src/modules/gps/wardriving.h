@@ -39,7 +39,11 @@ private:
     uint32_t sessionStartMs = 0;
     String filename = "";
     TinyGPSPlus gps;
+#ifdef USE_REMOTE_CANVAS
+    HardwareSerial GPSserial = HardwareSerial(1); // split-display master: UART2 is reserved for the touch link
+#else
     HardwareSerial GPSserial = HardwareSerial(2); // Uses UART2 for GPS
+#endif
     std::set<uint64_t> registeredMACs;            // Store and track registered MAC (packed 48-bit)
     std::set<String> alertMACs;                   // Store alert MAC addresses from file
     bool scanWiFi = false;                        // Flag to scan WiFi networks

@@ -2,10 +2,9 @@
  * Bruce split-display SLAVE firmware  --  PanelLan ZX2D80CE02S (SC05_X)
  * ---------------------------------------------------------------------------
  * Role: dumb pixel blitter + touch return. Receives RGB565 tiles from the
- * master over SPI (this board = SPI peripheral) and paints them on the
- * parallel ST7789; reads the FT6336 cap-touch and hands the master the latest
- * touch state on MISO (full-duplex, on every control frame) plus a TOUCH_IRQ
- * line so the master knows when to look.
+ * master over SPI (this board = SPI peripheral, RX only) and paints them on the
+ * parallel ST7789; reads the FT6336 cap-touch and TXes touch packets to the
+ * master over a one-way UART on pin 13 (the old MISO wire).
  *
  * Panel + touch pin map copied verbatim from the Bruce ZX2D80CE02S board port
  * (boards/ZX2D80CE02S/pins_arduino.h + interface.cpp).
@@ -19,8 +18,13 @@
 #include <LovyanGFX.hpp>
 #include <Wire.h>
 #include <driver/spi_slave.h>
+#include <driver/gpio.h> // gpio_set_drive_capability (weaken pin-13 UART edges -> less SPI crosstalk)
 
 #include "bruce_remote_link.h" // shared with the master (see -I.. in platformio.ini)
+
+// Touch return runs over a UART on pin 13 (see UART section below), NOT over SPI MISO:
+// the ESP32-S3 spi_slave DMA cannot clock varying multi-byte data back to the Arduino
+// master (confirmed on hw). The SPI link is now master->slave only (tiles + commands).
 
 // The ST7789 is native PORTRAIT; we scan it in landscape (setRotation 1/3) so the
 // master's landscape 320x240 stream (BRL_PANEL_W x BRL_PANEL_H) maps 1:1. Native
@@ -186,39 +190,49 @@ static void map_touch(int16_t rx, int16_t ry, uint8_t rot, uint16_t &lx, uint16_
     }
 }
 
-/* ============================== SPI slave ================================= */
+/* ================= SPI slave (RX-only) + UART touch return ================ */
 // EXT-IO header pins (the only free general IO on the board).
 #define PIN_SPI_CS 10
 #define PIN_SPI_SCLK 12
 #define PIN_SPI_MOSI 11
-#define PIN_SPI_MISO 13
-#define PIN_TOUCH_IRQ 14 // slave -> master, active low
+#define PIN_LINK_UART_TX 13 // was SPI MISO; now a one-way UART TX to the master (touch packets)
+#define PIN_TOUCH_IRQ 14    // legacy slave->master IRQ; unused now (touch is pushed over UART)
 
 #define SPI_SLAVE_HOST SPI2_HOST
 
-// DMA-capable buffers must be word-aligned. Self-framing: one transaction per CS frame,
-// sized to the max (header + payload). tx_frame's first 16 bytes carry the status block so
-// MISO always presents valid status; the rest is don't-care (master ignores MISO on tiles).
+// UART to the master for touch return on pin 13. This standalone board runs no Bruce modules,
+// so its hardware UART1 is free; the master listens on its UART2 (see remote_canvas.cpp).
+static HardwareSerial LinkTx(1);
+
+// DMA-capable RX buffer (word-aligned). One self-framing transaction per CS frame; the master
+// only sends (tiles + commands), so there is no MISO/TX buffer anymore.
 static WORD_ALIGNED_ATTR uint8_t rx_frame[BRL_MAX_FRAME];
-static WORD_ALIGNED_ATTR uint8_t tx_frame[BRL_MAX_FRAME];
 
-// Latest touch status, refreshed by the touch task, snapshotted into tx_ctrl
-// before each control transaction is armed.
-// Not volatile: every access is inside the portMUX critical section below,
-// which provides the memory barrier and mutual exclusion between the touch
-// task (core 0) and the SPI loop.
-static brl_status_t g_status;
-static portMUX_TYPE g_status_mux = portMUX_INITIALIZER_UNLOCKED;
-
-// Current landscape scan rotation (SLAVE_ROT_NORMAL / SLAVE_ROT_FLIP). Written by
-// the SPI loop on BRL_OP_ROTATION, read by the touch task; a single aligned byte
-// so reads/writes are atomic on Xtensa -- no lock needed.
+// Current landscape scan rotation (SLAVE_ROT_NORMAL / SLAVE_ROT_FLIP). Written by the SPI loop
+// on BRL_OP_ROTATION, read by the touch task; a single aligned byte so accesses are atomic.
 static uint8_t g_rotation = SLAVE_ROT_NORMAL;
+static uint8_t g_touch_seq = 0; // ++ per distinct touch event; only touched by the touch task
+// micros() of the last received tile. The touch task defers UART TX while tiles are actively
+// streaming so the pin-13 UART edges don't crosstalk onto the concurrent MOSI/SCLK tile data.
+static volatile uint32_t g_last_tile_us = 0;
+
+// Send one framed touch packet to the master over the UART. Sent twice for redundancy (touch is
+// low-rate and the master dedups by seq, so a duplicate is free insurance against a dropped byte).
+static void link_send_touch(uint8_t state, uint16_t x, uint16_t y, uint8_t seq) {
+    brl_touch_pkt_t p = {};
+    p.state = state;
+    p.x = x;
+    p.y = y;
+    p.seq = seq;
+    brl_touch_finalize(&p);
+    LinkTx.write((const uint8_t *)&p, sizeof p);
+    LinkTx.write((const uint8_t *)&p, sizeof p);
+}
 
 static void spi_slave_init() {
     spi_bus_config_t buscfg = {};
     buscfg.mosi_io_num = PIN_SPI_MOSI;
-    buscfg.miso_io_num = PIN_SPI_MISO;
+    buscfg.miso_io_num = -1; // RX-only: pin 13 is now the touch UART, not SPI MISO
     buscfg.sclk_io_num = PIN_SPI_SCLK;
     buscfg.quadwp_io_num = -1;
     buscfg.quadhd_io_num = -1;
@@ -238,64 +252,69 @@ static void spi_slave_init() {
     ESP_ERROR_CHECK(spi_slave_initialize(SPI_SLAVE_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO));
 }
 
-// Arm ONE self-framing transaction: up to BRL_MAX_FRAME bytes, CS-delimited. tx_frame carries
-// the status block (first 16 bytes) so MISO always presents valid status. Returns bytes received.
+// Arm ONE self-framing RX transaction: up to BRL_MAX_FRAME bytes, CS-delimited. Returns bytes
+// received (trans_len). No TX buffer -- the master never reads MISO.
 static size_t spi_slave_frame() {
     spi_slave_transaction_t t = {};
     t.length = BRL_MAX_FRAME * 8; // max bits; actual set in trans_len on CS deassert
-    t.tx_buffer = tx_frame;
+    t.tx_buffer = nullptr;
     t.rx_buffer = rx_frame;
     if (spi_slave_transmit(SPI_SLAVE_HOST, &t, portMAX_DELAY) != ESP_OK) return 0;
     return t.trans_len / 8;
 }
 
 /* ============================== Touch task =============================== */
+// Polls the FT6336; on each distinct DOWN/MOVE/UP event, maps to canvas coords and latches it, then
+// TXes it to the master over the UART *only when the SPI tile bus is idle* (so the pin-13 UART edges
+// don't crosstalk onto concurrent tile data -> menu corruption during touch-driven redraws). A slow
+// heartbeat confirms link liveness; the master dedups by seq, so a heartbeat never registers as a touch.
 static void touch_task(void *) {
     int16_t last_x = -1, last_y = -1;
     bool was_down = false;
+    uint32_t last_send = 0;
+    bool pend = false; // a distinct event is latched, waiting for an idle SPI window
+    uint8_t p_state = BRL_TOUCH_UP, p_seq = 0;
+    uint16_t p_x = 0, p_y = 0;
     for (;;) {
         int16_t x, y;
         bool down = ft_read_touch(x, y);
-        bool changed = false;
-        brl_status_t s;
-        portENTER_CRITICAL(&g_status_mux);
-        s = g_status;
-        portEXIT_CRITICAL(&g_status_mux);
-
         uint8_t rot = g_rotation;
-        uint16_t lx = 0, ly = 0; // locals: brl_status_t is packed, can't ref its fields
+        uint16_t lx = 0, ly = 0;
+
         if (down) {
-            uint8_t state = was_down ? BRL_TOUCH_MOVE : BRL_TOUCH_DOWN;
+            uint8_t st = was_down ? BRL_TOUCH_MOVE : BRL_TOUCH_DOWN;
             if (!was_down || x != last_x || y != last_y) {
-                s.touch_state = state;
                 map_touch(x, y, rot, lx, ly); // -> landscape canvas coords
-                s.touch_x = lx;
-                s.touch_y = ly;
-                s.seq++;
-                s.flags |= 0x01;
-                changed = true;
+                p_state = st;
+                p_x = lx;
+                p_y = ly;
+                p_seq = ++g_touch_seq;
+                pend = true;
             }
             was_down = true;
             last_x = x;
             last_y = y;
         } else if (was_down) {
-            s.touch_state = BRL_TOUCH_UP;
             map_touch(last_x, last_y, rot, lx, ly);
-            s.touch_x = lx;
-            s.touch_y = ly;
-            s.seq++;
-            s.flags &= ~0x01;
-            changed = true;
+            p_state = BRL_TOUCH_UP;
+            p_x = lx;
+            p_y = ly;
+            p_seq = ++g_touch_seq;
+            pend = true;
             was_down = false;
         }
 
-        if (changed) {
-            brl_status_finalize(&s);
-            portENTER_CRITICAL(&g_status_mux);
-            g_status = s;
-            portEXIT_CRITICAL(&g_status_mux);
-            // Assert IRQ (active low) so the master knows to poll.
-            digitalWrite(PIN_TOUCH_IRQ, LOW);
+        // Hold off the UART while tiles are actively streaming (idle for >12ms == burst over).
+        bool tiles_busy = (uint32_t)(micros() - g_last_tile_us) < 12000u;
+        if (!tiles_busy) {
+            if (pend) {
+                link_send_touch(p_state, p_x, p_y, p_seq);
+                pend = false;
+                last_send = millis();
+            } else if (millis() - last_send >= 2000) {
+                last_send = millis();
+                link_send_touch(BRL_TOUCH_UP, 0, 0, g_touch_seq); // slow heartbeat (same seq -> ignored)
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(15));
     }
@@ -307,6 +326,7 @@ static void touch_task(void *) {
 static void apply_header(const brl_header_t *h, const uint8_t *payload, size_t payload_len) {
     switch (h->opcode) {
     case BRL_OP_TILE: {
+        g_last_tile_us = micros(); // mark SPI-bus activity so the touch task holds off UART TX
         uint32_t len = brl_payload_len(h);
         if (len == 0 || len > BRL_MAX_PAYLOAD || payload_len < len) return;
         lcd.pushImage(h->x, h->y, h->w, h->h, (const uint16_t *)payload);
@@ -331,10 +351,7 @@ static void apply_header(const brl_header_t *h, const uint8_t *payload, size_t p
         g_rotation = sr;
         break;
     }
-    case BRL_OP_POLLTOUCH:
-        // Master collected the status we just sent full-duplex; drop IRQ.
-        digitalWrite(PIN_TOUCH_IRQ, HIGH);
-        break;
+    case BRL_OP_POLLTOUCH: // legacy no-op: touch is now pushed over the UART, not polled on SPI
     case BRL_OP_SYNC:
     case BRL_OP_PING:
     default:
@@ -348,8 +365,12 @@ void setup() {
     delay(2000); // let the native USB-CDC (ARDUINO_USB_CDC_ON_BOOT) enumerate so the banner survives
     Serial.println("\n[slave] boot: ZX2D80CE02S split-display blitter");
 
-    pinMode(PIN_TOUCH_IRQ, OUTPUT);
-    digitalWrite(PIN_TOUCH_IRQ, HIGH); // idle high (no pending touch)
+    // Touch-return UART on pin 13 (TX only; the master never sends to us here).
+    LinkTx.begin(BRL_UART_BAUD, SERIAL_8N1, /*rx=*/-1, /*tx=*/PIN_LINK_UART_TX);
+    // Weakest drive strength: gentler edges on the pin-13 wire -> less capacitive crosstalk onto the
+    // adjacent MOSI/SCLK tile lines. Fine for reception over the short jumper.
+    gpio_set_drive_capability((gpio_num_t)PIN_LINK_UART_TX, GPIO_DRIVE_CAP_0);
+    Serial.printf("[slave] touch UART TX on pin %d @ %d baud\n", PIN_LINK_UART_TX, BRL_UART_BAUD);
 
     bool ok = lcd.init();
     Serial.printf("[slave] lcd.init() = %d\n", ok);
@@ -384,27 +405,13 @@ void setup() {
     ft_write(0x86, 0x00); // CTRL = no auto monitor
     ft_write(0xA4, 0x00); // G_MODE = polling
 
-    // Seed the status block the master will read.
-    brl_status_t s = {};
-    s.panel_w = BRL_PANEL_W;
-    s.panel_h = BRL_PANEL_H;
-    s.touch_state = BRL_TOUCH_UP;
-    brl_status_finalize(&s);
-    g_status = s;
-
     spi_slave_init();
     xTaskCreatePinnedToCore(touch_task, "touch", 4096, nullptr, 2, nullptr, 0);
-    Serial.println("[slave] setup complete; waiting for master over SPI");
+    Serial.println("[slave] setup complete; RX tiles over SPI, TX touch over UART");
 }
 
 /* ================================= loop ================================= */
 void loop() {
-    // Prime MISO with the freshest status so ANY control read returns valid status,
-    // regardless of whether this frame turns out to be a control frame or a tile.
-    portENTER_CRITICAL(&g_status_mux);
-    memcpy(tx_frame, (const void *)&g_status, 16);
-    portEXIT_CRITICAL(&g_status_mux);
-
     // Block until the master clocks one CS-framed message (header + optional payload).
     size_t nbytes = spi_slave_frame();
     if (nbytes < 16) return; // runt / no frame

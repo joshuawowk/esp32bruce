@@ -65,8 +65,8 @@ void InputHandler(void) {
     static long tm = 0;
     if (millis() - tm < 20 && !LongPress) return;
 
-    // ---- Remote touch ----
-    if (digitalRead(REMOTE_LINK_IRQ) == LOW) {
+    // ---- Remote touch (pushed by the slave over the UART; drained here) ----
+    {
         brl_status_t st;
         if (remote_canvas_poll_touch(&st) && st.seq != lastTouchSeq) {
             lastTouchSeq = st.seq;

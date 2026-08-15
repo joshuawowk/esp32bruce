@@ -34,7 +34,11 @@ private:
     double distance = 0;
     String filename = "";
     TinyGPSPlus gps;
+#ifdef USE_REMOTE_CANVAS
+    HardwareSerial GPSserial = HardwareSerial(1); // split-display master: UART2 is reserved for the touch link
+#else
     HardwareSerial GPSserial = HardwareSerial(2);
+#endif
     int gpsCoordCount = 0;
     bool rxPinReleased = false;
 

@@ -91,7 +91,11 @@ static const uint8_t SCL = GROVE_SCL;
 // =============================================================================
 // Display: headless PSRAM canvas streamed over SPI (no local panel)
 // =============================================================================
+// Also set as -DUSE_REMOTE_CANVAS in the env build_flags so EVERY translation unit (incl. Bruce's
+// GPS/NRF modules, which move to UART1 on this board) sees it regardless of include order.
+#ifndef USE_REMOTE_CANVAS
 #define USE_REMOTE_CANVAS // selects lib/HAL/display/remote_canvas.h
+#endif
 #define HAS_SCREEN
 // Pinned LANDSCAPE. The PSRAM canvas IS a landscape 320x240 sprite: Bruce reads
 // tftWidth/tftHeight from tft.width()/height() (the sprite dims), so these macros
