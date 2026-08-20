@@ -17,12 +17,21 @@ static TaskHandle_t timezoneTaskHandle = NULL;
 static bool wifiTransitioning = false;
 
 esp_err_t wifiRawTx(wifi_interface_t ifx, const void *frame, int len, uint8_t retries) {
+#ifdef DISABLE_RAW_RADIO
+    // ESP32-P4 / esp-hosted (Tab5): the C6 co-processor does not expose raw 802.11 TX.
+    (void)ifx;
+    (void)frame;
+    (void)len;
+    (void)retries;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     esp_err_t err = esp_wifi_80211_tx(ifx, frame, len, false);
     for (uint8_t i = 0; err == ESP_ERR_NO_MEM && i < retries; i++) {
         vTaskDelay(1); // let the driver drain TX buffers and retry
         err = esp_wifi_80211_tx(ifx, frame, len, false);
     }
     return err;
+#endif
 }
 
 void ensureWifiPlatform() {

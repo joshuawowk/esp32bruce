@@ -49,6 +49,7 @@
 #include <Preferences.h>
 #define BLE_SPAM_HAS_PREFERENCES 1
 #endif
+#include "modules/ble/ble_pwr_compat.h"
 #if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C2) ||                              \
     defined(CONFIG_IDF_TARGET_ESP32S3)
 #define MAX_TX_POWER ESP_PWR_LVL_P21
@@ -360,7 +361,11 @@ void ibeacon(const char *DeviceName, const char *BEACON_UUID, int ManufacturerId
     // This handles the case where another module deinit'd the stack
     BLEDevice::init(DeviceName);
     vTaskDelay(5 / portTICK_PERIOD_MS);
+#ifdef CONFIG_IDF_TARGET_ESP32P4
+    NimBLEDevice::setPower((int8_t)MAX_TX_POWER);
+#else
     esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, MAX_TX_POWER);
+#endif
 
     NimBLEBeacon myBeacon;
     myBeacon.setManufacturerId(0x4c00);
@@ -1075,7 +1080,11 @@ static esp_power_level_t bleSpamTxPowerToLevel(BleSpamTxPower level) {
 }
 
 static void bleSpamApplyTxPower(BleSpamTxPower level) {
+#ifdef CONFIG_IDF_TARGET_ESP32P4
+    NimBLEDevice::setPower((int8_t)bleSpamTxPowerToLevel(level));
+#else
     esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, bleSpamTxPowerToLevel(level));
+#endif
 }
 
 static void bleSpamSetMac(const uint8_t *mac) { esp_iface_mac_addr_set(mac, ESP_MAC_BT); }
