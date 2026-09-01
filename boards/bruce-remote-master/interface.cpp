@@ -71,9 +71,12 @@ void InputHandler(void) {
         if (remote_canvas_poll_touch(&st) && st.seq != lastTouchSeq) {
             lastTouchSeq = st.seq;
             tm = millis();
+            previousMillis = millis(); // ANY touch is activity: reset the dim/screen-off timer so the
+                                       // screen never sleeps mid-use (and re-arms the timeout after wake).
+            // Any touch (incl. UP) wakes a dimmed/off screen and is swallowed, so the first tap only wakes.
+            if (wakeUpScreen()) return;
             if (st.touch_state == BRL_TOUCH_DOWN || st.touch_state == BRL_TOUCH_MOVE) {
-                if (!wakeUpScreen()) AnyKeyPress = true;
-                else return;
+                AnyKeyPress = true;
                 touchPoint.x = st.touch_x;
                 touchPoint.y = st.touch_y;
                 touchPoint.pressed = true;
@@ -84,6 +87,7 @@ void InputHandler(void) {
 
     // ---- BOOT button (Select) ----
     if (digitalRead(BTN_PIN) == BTN_ACT) {
+        previousMillis = millis(); // button activity resets the dim/screen-off timer too
         if (!wakeUpScreen()) {
             AnyKeyPress = true;
             SelPress = true;

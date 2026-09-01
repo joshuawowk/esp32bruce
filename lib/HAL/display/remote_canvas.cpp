@@ -62,8 +62,29 @@
 /* Inter-tile pacing: after a band's payload the slave spends ~0.5-1ms in pushImage()
  * blitting it to the panel, during which it is NOT armed for the next SPI transaction.
  * The master must wait before clocking the next tile or the slave misses the header and
- * desyncs permanently (black screen). Generous for bring-up; reduce once proven. */
-#define REMOTE_LINK_TILE_GAP_MS 3
+ * (per-tile) DROPS that band -- which, with commit-before-ack bandCrc[] + no retransmit,
+ * freezes the band stale until its canvas CRC changes again. At 20 MHz a tile clocks in
+ * ~4.1ms; the slave's un-armed window (pushImage + DMA re-arm) is ~0.5-1ms plus scheduler
+ * jitter. 3ms left only ~2ms margin -> occasional jitter drops during full-screen/scroll
+ * bursts. 5ms gives ~4ms margin (roughly halves the drop rate) at a cost of only ~+30ms on
+ * a 15-band full-screen redraw (15*(4.1+5)=137ms vs 15*(4.1+3)=107ms). This is the master-
+ * only half of the fix; the staleness refresh below makes any residual drop non-permanent. */
+#define REMOTE_LINK_TILE_GAP_MS 5
+#endif
+#ifndef REMOTE_LINK_REFRESH_CYCLES
+/* Staleness-bounding refresh cadence, in flush cycles. Once every N cycles the flush task
+ * force-resends exactly ONE band (round-robin), regardless of CRC, so a band left stale by a
+ * dropped / crosstalk-corrupted / mid-render tile self-heals within one 15-band rotation.
+ *   period      = N * REMOTE_LINK_FLUSH_MS      = 6 * 20ms  = 120ms per forced tile
+ *   heal (worst)= BRL_NUM_BANDS * period        = 15 * 120  = 1800ms full round-robin
+ *   touch defer = 12ms busy / 120ms period      = 10% duty on an otherwise-static screen
+ * 12ms < the slave's 15ms touch poll, so at most ONE poll falls in each busy window: a touch
+ * or heartbeat is deferred by <=1 poll (~15ms) and only ~10% of the time -- no tap is lost.
+ * Deliberately NOT "one band per 20ms flush" (that is 60% duty with overlapping windows ->
+ * starves static-screen touch); the hard floor is N>=2 (period >=27ms > the 12ms busy window).
+ * ONE band per tick (never a batch) keeps the current draw equal to a normal single-band send
+ * -> no brownout spike. Raise N to lower duty / slow healing (N=8 -> 2.4s heal, 7.5% duty). */
+#define REMOTE_LINK_REFRESH_CYCLES 6
 #endif
 #ifndef REMOTE_LINK_SPI_BUS
 #define REMOTE_LINK_SPI_BUS HSPI
@@ -223,16 +244,35 @@ bool remote_canvas_poll_touch(brl_status_t *out) {
 static void flushTask(void *) {
     for (int i = 0; i < BRL_NUM_BANDS; i++) bandCrc[i] = 0; /* force first full send */
     const int bandPixels = g_w * BRL_BAND_ROWS;
+    uint32_t cycle = 0;  /* flush-cycle counter; drives the staleness refresh */
+    int refreshIdx = 0;  /* round-robin band index to force-resend */
     for (;;) {
         if (g_fb) {
+            /* Staleness-bounding refresh. The tile path has no ACK/retransmit and bandCrc[b] is
+             * committed the instant a tile is queued (not when it lands), so a band left stale by a
+             * dropped, crosstalk-corrupted, or sampled-mid-render tile would otherwise persist until
+             * that band's canvas CRC changes again -- the root of all three panel artifacts. Once
+             * every REMOTE_LINK_REFRESH_CYCLES cycles, force-resend exactly ONE band (round-robin)
+             * regardless of CRC, re-shipping the CURRENT (correct) canvas content. Any stale band
+             * therefore self-heals within one BRL_NUM_BANDS rotation (~2.4s). One band per tick keeps
+             * the current draw identical to a normal single-band send (no brownout spike), and the
+             * long period keeps the slave's 12ms touch-defer from starving touch on static screens.
+             * This heals staleness from ANY source; whatever still fails to heal within a rotation is
+             * by definition a master-canvas bug, not a transport drop -- a clean ground-truth split. */
+            int forced = -1;
+            if ((cycle % (uint32_t)REMOTE_LINK_REFRESH_CYCLES) == 0) {
+                forced = refreshIdx;
+                refreshIdx = (refreshIdx + 1) % BRL_NUM_BANDS;
+            }
             for (int b = 0; b < BRL_NUM_BANDS; b++) {
                 uint16_t *band = g_fb + (size_t)b * bandPixels;
                 uint32_t c = esp_rom_crc32_le(0, (const uint8_t *)band, (uint32_t)bandPixels * 2u);
-                if (c != bandCrc[b]) {
+                if (c != bandCrc[b] || b == forced) {
                     bandCrc[b] = c;
                     send_tile(0, b * BRL_BAND_ROWS, g_w, BRL_BAND_ROWS, band);
                 }
             }
+            cycle++;
         }
         vTaskDelay(pdMS_TO_TICKS(REMOTE_LINK_FLUSH_MS));
     }
