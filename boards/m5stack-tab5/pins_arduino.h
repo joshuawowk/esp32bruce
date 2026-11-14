@@ -27,6 +27,19 @@ static const uint8_t MOSI = 18;
 static const uint8_t MISO = 19;
 static const uint8_t SCK  = 5;
 
+// ESP-Hosted link to the onboard ESP32-C6 (SDIO slot 1). Without these the Arduino core
+// falls back to the ESP32-P4 Function EV Board's pins (CLK 18, CMD 19, D0 14, D1 15,
+// reset 54) and the C6 never answers, so Wi-Fi and BLE are dead. Same values as the
+// core's own m5stack_tab5 variant.
+#define BOARD_HAS_SDIO_ESP_HOSTED
+#define BOARD_SDIO_ESP_HOSTED_CLK   12
+#define BOARD_SDIO_ESP_HOSTED_CMD   13
+#define BOARD_SDIO_ESP_HOSTED_D0    11
+#define BOARD_SDIO_ESP_HOSTED_D1    10
+#define BOARD_SDIO_ESP_HOSTED_D2    9
+#define BOARD_SDIO_ESP_HOSTED_D3    8
+#define BOARD_SDIO_ESP_HOSTED_RESET 15
+
 // GPIO aliases
 static const uint8_t G0=0,  G1=1,  G2=2,  G3=3,  G4=4,  G5=5,  G6=6,  G7=7;
 static const uint8_t G8=8,  G9=9,  G10=10, G11=11, G12=12, G13=13, G14=14, G15=15;
